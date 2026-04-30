@@ -50,7 +50,7 @@ export default async function handler(leni) {
 
           const translatedQuote = await translateToID(originalQuote);
           
-          const message = `*Quote of the Day*\n\n` + `"${translatedQuote}"\n@${originalAuthor}`;
+          const message = `*Quote of the Day*\n\n` + `"${translatedQuote}"\n\n@${originalAuthor}`;
 
           lenwyreply(message, m);
         } catch (error) {
