@@ -20,6 +20,7 @@ import {
   fetchLatestBaileysVersion,
   downloadContentFromMessage,
   getContentType,
+  DisconnectReason,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import chalk from "chalk";
@@ -102,15 +103,27 @@ async function connectToWhatsApp() {
   lenwy.ev.on("creds.update", saveCreds);
 
   lenwy.ev.on("connection.update", (update) => {
-    const { connection } = update;
+    const { connection, lastDisconnect } = update;
     if (connection === "close") {
-      console.log(chalk.red("❌  Koneksi Terputus, Mencoba Menyambung Ulang"));
-
       if (pollingIntervalId) {
         clearInterval(pollingIntervalId);
+        pollingIntervalId = null;
         console.log(chalk.yellow("[POLLING] Polling lama dihentikan."));
       }
 
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+
+      // Jangan reconnect bila benar-benar logout (creds tidak valid lagi)
+      if (statusCode === DisconnectReason.loggedOut) {
+        console.log(
+          chalk.red(
+            "❌  Sesi Logout. Hapus folder LenwySesi lalu jalankan ulang untuk pairing baru.",
+          ),
+        );
+        return;
+      }
+
+      console.log(chalk.red("❌  Koneksi Terputus, Mencoba Menyambung Ulang"));
       // Sambungkan Ulang
       connectToWhatsApp();
     } else if (connection === "open") {

@@ -14,6 +14,7 @@
 
 */
 
+import axios from "axios";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
 
 export const info = {
@@ -32,30 +33,44 @@ export const info = {
   admin: false,
   botAdmin: false,
 
-  allowPrivate: false,
+  allowPrivate: true,
 };
+
+// Sumber AI cadangan bila Ai4Chat sedang down
+async function askPublicAI(q) {
+  const url = `https://api.fromscratch.web.id/v1/api/ai/publicai?query=${encodeURIComponent(q)}`;
+  const { data } = await axios.get(url, { timeout: 20000 });
+  return data?.data?.response || null;
+}
 
 export default async function handler(lenwy) {
   const { command, q, LenwyText, LenwyWait } = lenwy;
 
-  switch (command) {
-    case "ai":
-      {
-        if (!q) return LenwyText("☘️ *Contoh:* ai Apa itu JavaScript?");
+  if (command !== "ai") return;
+  if (!q) return LenwyText("☘️ *Contoh:* .ai Apa itu JavaScript?");
 
-        LenwyWait();
+  LenwyWait();
 
-        try {
-          const lenai = await Ai4Chat(q);
+  // Coba beberapa sumber AI berurutan agar lebih andal
+  let answer = null;
 
-          if (!lenai) return LenwyText("⚠️ AI Tidak Merespon.");
-
-          await LenwyText(`*Lenwy AI*\n\n${lenai}`);
-        } catch (error) {
-          console.error("Error AI:", error);
-          LenwyText(globalThis.mess.error);
-        }
-      }
-      break;
+  try {
+    answer = await Ai4Chat(q);
+  } catch (err) {
+    console.error("Ai4Chat gagal:", err.message);
   }
+
+  if (!answer) {
+    try {
+      answer = await askPublicAI(q);
+    } catch (err) {
+      console.error("PublicAI gagal:", err.message);
+    }
+  }
+
+  if (!answer) {
+    return LenwyText("⚠️ Semua sumber AI sedang tidak merespon. Coba lagi nanti.");
+  }
+
+  await LenwyText(`*Lenwy AI*\n\n${answer}`);
 }

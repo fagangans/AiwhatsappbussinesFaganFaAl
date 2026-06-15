@@ -31,6 +31,11 @@ globalThis.sauthor = "Youtube : Lenwy\nBot: 0856-2497-5232"; // Ganti Sesuai Kei
 globalThis.prefix = ["#", ".", "!", "/"]; // Multi Prefix (Custom Prefix)
 globalThis.noprefix = false; // True = Tanpa Prefix, False = Pakai Prefix
 
+// Akses Private Chat
+// true  = semua fitur bisa dipakai di chat pribadi (kecuali yang khusus grup/admin/owner)
+// false = fitur di chat pribadi hanya untuk Owner/Premium
+globalThis.openPrivate = true;
+
 // Custom Menu Image
 globalThis.MenuImage = path.join(__dirname, "./database/image/lenwy.jpeg"); // Ganti Dengan Path Gambar Menu
 

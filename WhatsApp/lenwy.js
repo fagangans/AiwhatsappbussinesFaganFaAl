@@ -207,28 +207,26 @@ export default async (lenwy, m, meta) => {
   processedMessages.add(msg.key.id);
   setTimeout(() => processedMessages.delete(msg.key.id), 30000);
 
-  const pplu = fs.readFileSync(globalThis.MenuImage);
-  const len = {
-    key: {
-      participant: `0@s.whatsapp.net`,
-      remoteJid: replyJid,
-    },
-    message: {
-      contactMessage: {
-        displayName: `${pushname}`,
-        vcard: `BEGIN:VCARD\nVERSION:3.0\nN:XL;Lenwy,;;;\nFN: Lenwy V1.0\nitem1.TEL;waid=${sender.split("@")[0]}:+${sender.split("@")[0]}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`,
-        jpegThumbnail: pplu,
-        thumbnail: pplu,
-        sendEphemeral: true,
-      },
-    },
+  // Quote balasan memakai pesan asli user agar valid & tampil benar di HP penerima.
+  // (Quote palsu sebelumnya membuat sebagian pesan gagal dirender meski sudah terkirim.)
+  const len = msg;
+
+  // Pengirim pesan aman: tanpa quoted palsu yang bikin pesan gagal tampil di HP,
+  // sekaligus mencatat status kirim di terminal.
+  const safeSend = async (content) => {
+    try {
+      await lenwy.sendMessage(replyJid, content);
+      console.log(chalk.green.bold(`[✔] Terkirim → ${replyJid}`));
+    } catch (err) {
+      console.error(
+        chalk.red.bold("[✘] Gagal Kirim Pesan:"),
+        err?.message || err,
+      );
+    }
   };
 
   // Custom Reply
-  const lenwyreply = (teks) =>
-    lenwy.sendMessage(replyJid, { text: teks }, { quoted: len })
-      .then(() => console.log(chalk.green.bold("[✔] Pesan Terkirim ke " + replyJid)))
-      .catch((err) => console.error(chalk.red.bold("[✘] Gagal Kirim Pesan:"), err.message));
+  const lenwyreply = (teks) => safeSend({ text: teks });
 
   // Gambar Menu
   const MenuImage = fs.readFileSync(globalThis.MenuImage);
@@ -299,6 +297,17 @@ export default async (lenwy, m, meta) => {
     }
   }
 
+  // Cocokkan identitas berdasarkan digit nomor agar tahan format @lid / @s.whatsapp.net
+  // dan device-id (mis. "628xxx:12@s.whatsapp.net").
+  const onlyDigits = (val) =>
+    (val || "").toString().split("@")[0].split(":")[0].replace(/\D/g, "");
+  const idCandidates = [normalizedSender, sender, originalSender, senderJid]
+    .map(onlyDigits)
+    .filter(Boolean);
+  const matchesList = (list) =>
+    Array.isArray(list) &&
+    list.some((u) => idCandidates.includes(onlyDigits(u)));
+
   // Premium
   const premiumPath = path.join(
     process.cwd(),
@@ -307,7 +316,7 @@ export default async (lenwy, m, meta) => {
     "premium.json",
   );
   const premiumUsers = readJSONSync(premiumPath);
-  const isPremium = premiumUsers.includes(normalizedSender);
+  const isPremium = matchesList(premiumUsers);
 
   // Creator
   const CreatorPath = path.join(
@@ -317,7 +326,13 @@ export default async (lenwy, m, meta) => {
     "creator.json",
   );
   const isCreatorArray = readJSONSync(CreatorPath);
-  const isLenwy = isCreatorArray.includes(normalizedSender);
+  const isLenwy = matchesList(isCreatorArray);
+
+  // Tampilkan JID pengirim agar gampang didaftarkan ke creator.json / premium.json bila perlu
+  console.log(
+    chalk.cyan.bold("[JID]"),
+    chalk.white(normalizedSender || sender || originalSender || "unknown"),
+  );
 
   // Delete Message
   async function deleteMessage(msgKey, tag = "DELETE") {
@@ -354,36 +369,23 @@ export default async (lenwy, m, meta) => {
   const q = args.join(" ");
 
   // Helper
-  const LenwyText = (text) =>
-    lenwy.sendMessage(replyJid, { text }, { quoted: len })
-      .then(() => console.log(chalk.green.bold("[✔] Pesan Terkirim ke " + replyJid)))
-      .catch((err) => console.error(chalk.red.bold("[✘] Gagal Kirim Pesan:"), err.message));
+  const LenwyText = (text) => safeSend({ text });
 
-  const LenwyWait = () => lenwyreply(globalThis.mess.wait);
+  const LenwyWait = () => safeSend({ text: globalThis.mess.wait });
 
   // Send Video
-  const LenwyVideo = (url, caption = "") =>
-    lenwy.sendMessage(replyJid, { video: { url }, caption }, { quoted: len });
+  const LenwyVideo = (url, caption = "") => safeSend({ video: { url }, caption });
 
   // Send Image
-  const LenwyImage = (url, caption = "") =>
-    lenwy.sendMessage(replyJid, { image: { url }, caption }, { quoted: len });
+  const LenwyImage = (url, caption = "") => safeSend({ image: { url }, caption });
 
   // Send Audio
   const LenwyAudio = (url, ptt = false) =>
-    lenwy.sendMessage(
-      replyJid,
-      { audio: { url }, mimetype: "audio/mpeg", ptt },
-      { quoted: len },
-    );
+    safeSend({ audio: { url }, mimetype: "audio/mpeg", ptt });
 
   // Send File
   const LenwyFile = (buffer, fileName, mime) =>
-    lenwy.sendMessage(
-      replyJid,
-      { document: buffer, fileName, mimetype: mime },
-      { quoted: len },
-    );
+    safeSend({ document: buffer, fileName, mimetype: mime });
 
   // Label Menu
   function getLabel(info) {
@@ -442,15 +444,11 @@ export default async (lenwy, m, meta) => {
         });
     }
 
-    await lenwy.sendMessage(
-      replyJid,
-      {
-        image: MenuImage,
-        caption: `${text}\n☘️ *Lenwy From Scratch*`,
-        mentions: [normalizedSender],
-      },
-      { quoted: len },
-    );
+    await safeSend({
+      image: MenuImage,
+      caption: `${text}\n☘️ *Lenwy From Scratch*`,
+      mentions: [normalizedSender],
+    });
   }
 
   // Category Menu
@@ -470,15 +468,11 @@ export default async (lenwy, m, meta) => {
         text += `*[+] ${folder.toUpperCase()}MENU*\n`;
       });
 
-    await lenwy.sendMessage(
-      replyJid,
-      {
-        image: MenuImage,
-        caption: `${text}\n☘️ *Lenwy From Scratch*`,
-        mentions: [normalizedSender],
-      },
-      { quoted: len },
-    );
+    await safeSend({
+      image: MenuImage,
+      caption: `${text}\n☘️ *Lenwy From Scratch*`,
+      mentions: [normalizedSender],
+    });
   }
 
   // Category Menu Dynamic
@@ -532,15 +526,14 @@ export default async (lenwy, m, meta) => {
   if (info.maintenance === true && !isLenwy)
     return LenwyText(globalThis.mess.maintenance);
 
-  if (!isGroup) {
-    if (!isPremium && !isLenwy) {
-      if (!info.allowPrivate) {
-        return LenwyText(
-          "⚠️ *Kamu Bukan User Premium!*\n\n" +
-            "Fitur ini tidak tersedia di Private Chat.\n\n" +
-            "Silakan upgrade ke Premium untuk akses penuh.",
-        );
-      }
+  // Akses private chat (default terbuka untuk semua).
+  // Set globalThis.openPrivate = false di len.js bila ingin batasi ke Owner/Premium.
+  if (!isGroup && globalThis.openPrivate === false) {
+    if (!isPremium && !isLenwy && !info.allowPrivate) {
+      return LenwyText(
+        "⚠️ *Fitur Premium*\n\n" +
+          "Fitur ini hanya tersedia untuk Owner/Premium di private chat.",
+      );
     }
   }
 
