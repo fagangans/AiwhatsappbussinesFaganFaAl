@@ -16,12 +16,13 @@
 
 import axios from "axios";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
+import { getHistory, addMessage, clearHistory } from "../../lib/aiMemory.js";
 
 export const info = {
   name: "AI4Chat",
 
   menu: ["AI"],
-  case: ["ai"],
+  case: ["ai", "resetai"],
 
   description: "Tanyakan Apa Saja!",
   hidden: false,
@@ -44,10 +45,24 @@ async function askPublicAI(q) {
 }
 
 // Fungsi AI yang bisa dipakai ulang (oleh perintah .ai maupun mode Auto AI).
-// Mencoba beberapa sumber berurutan agar lebih andal.
-export async function getAIAnswer(q) {
+// Bila diberi userId, AI akan ingat konteks percakapan sebelumnya.
+export async function getAIAnswer(q, userId = null) {
   const persona = globalThis.aiPersona || "";
-  const fullPrompt = persona ? `${persona}\n\nPertanyaan: ${q}` : q;
+
+  // Susun konteks dari riwayat percakapan
+  let context = "";
+  if (userId) {
+    const history = getHistory(userId);
+    if (history.length) {
+      context =
+        "\n\nRiwayat percakapan (konteks):\n" +
+        history
+          .map((h) => `${h.role === "user" ? "User" : "Kamu"}: ${h.text}`)
+          .join("\n");
+    }
+  }
+
+  const fullPrompt = `${persona}${context}\n\nUser: ${q}`;
 
   let answer = null;
 
@@ -65,18 +80,29 @@ export async function getAIAnswer(q) {
     }
   }
 
+  // Simpan ke memori bila berhasil
+  if (userId && answer) {
+    addMessage(userId, "user", q);
+    addMessage(userId, "assistant", answer);
+  }
+
   return answer;
 }
 
 export default async function handler(lenwy) {
-  const { command, q, LenwyText, LenwyWait } = lenwy;
+  const { command, q, LenwyText, LenwyWait, normalizedSender } = lenwy;
+
+  if (command === "resetai") {
+    clearHistory(normalizedSender);
+    return LenwyText("🧹 Memori percakapan AI sudah direset. Mulai obrolan baru!");
+  }
 
   if (command !== "ai") return;
   if (!q) return LenwyText("☘️ *Contoh:* .ai Apa itu JavaScript?");
 
   LenwyWait();
 
-  const answer = await getAIAnswer(q);
+  const answer = await getAIAnswer(q, normalizedSender);
 
   if (!answer) {
     return LenwyText("⚠️ Semua sumber AI sedang tidak merespon. Coba lagi nanti.");

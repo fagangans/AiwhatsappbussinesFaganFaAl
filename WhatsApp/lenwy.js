@@ -19,6 +19,7 @@ import "./len.js";
 import "./database/Menu/LenwyMenu.js";
 import { getAIAnswer } from "./case/ai/ai4chat.js";
 import { getSession } from "./lib/gameSession.js";
+import { checkRate } from "./lib/rateLimit.js";
 
 // [ ===== Import Pustaka ===== ]
 import fs from "fs";
@@ -214,9 +215,16 @@ export default async (lenwy, m, meta) => {
   const len = msg;
 
   // Pengirim pesan aman: tanpa quoted palsu yang bikin pesan gagal tampil di HP,
-  // sekaligus mencatat status kirim di terminal.
+  // sekaligus mencatat status kirim di terminal. Mode anti-ban menambah
+  // indikator "mengetik" + jeda acak agar terlihat lebih manusiawi.
   const safeSend = async (content) => {
     try {
+      if (globalThis.antiBan) {
+        await lenwy
+          .sendPresenceUpdate("composing", replyJid)
+          .catch(() => {});
+        await sleep(600 + Math.floor(Math.random() * 1200)); // 0.6 - 1.8 detik
+      }
       await lenwy.sendMessage(replyJid, content);
       console.log(chalk.green.bold(`[✔] Terkirim → ${replyJid}`));
     } catch (err) {
@@ -336,6 +344,29 @@ export default async (lenwy, m, meta) => {
     chalk.white(normalizedSender || sender || originalSender || "unknown"),
   );
 
+  // Anti-ban: tandai pesan sudah dibaca (terlihat lebih manusiawi)
+  if (globalThis.antiBan) {
+    await lenwy.readMessages([msg.key]).catch(() => {});
+  }
+
+  // Rate limit: cegah spam. Owner & user yang sedang main game dikecualikan.
+  if (
+    globalThis.rateLimit > 0 &&
+    !isLenwy &&
+    !getSession(replyJid, normalizedSender)
+  ) {
+    const rate = checkRate(normalizedSender, globalThis.rateLimit);
+    if (rate === "warn") {
+      return safeSend({
+        text: "⏳ Pelan-pelan ya, kamu mengirim pesan terlalu cepat. Coba lagi sebentar.",
+      });
+    }
+    if (rate === "blocked") {
+      console.log(chalk.yellow.bold("[RATE-LIMIT]"), normalizedSender);
+      return;
+    }
+  }
+
   // Delete Message
   async function deleteMessage(msgKey, tag = "DELETE") {
     if (!msgKey) return;
@@ -396,7 +427,7 @@ export default async (lenwy, m, meta) => {
       const gameActive = getSession(replyJid, normalizedSender);
       if (!gameActive) {
         console.log(chalk.magenta.bold("[AUTO-AI]"), chalk.white(body.trim()));
-        const answer = await getAIAnswer(body.trim());
+        const answer = await getAIAnswer(body.trim(), normalizedSender);
         if (answer) return lenwyreply(`*Lenwy AI*\n\n${answer}`);
         return lenwyreply("⚠️ AI sedang tidak merespon. Coba lagi sebentar lagi.");
       }

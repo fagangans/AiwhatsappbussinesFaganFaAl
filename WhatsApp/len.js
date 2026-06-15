@@ -50,6 +50,14 @@ globalThis.aiPersona =
   "Langsung ke inti tanpa basa-basi. Gunakan bahasa Indonesia yang natural dan santai. " +
   "Jangan ulangi pertanyaan user.";
 
+// Anti-ban — bikin bot terlihat lebih manusiawi & kurangi risiko diblokir WhatsApp
+// true  = aktifkan indikator "mengetik", tanda baca pesan, & jeda acak sebelum balas
+globalThis.antiBan = true;
+
+// Rate limit — maksimum pesan per user dalam 1 menit (Owner & game tidak dibatasi)
+// Naikkan/turunkan sesuai kebutuhan. Set 0 untuk mematikan rate limit.
+globalThis.rateLimit = 15;
+
 // Custom Menu Image
 globalThis.MenuImage = path.join(__dirname, "./database/image/lenwy.jpeg"); // Ganti Dengan Path Gambar Menu
 
