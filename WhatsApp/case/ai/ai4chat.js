@@ -17,6 +17,7 @@
 import axios from "axios";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
 import { getHistory, addMessage, clearHistory } from "../../lib/aiMemory.js";
+import { getKnowledgeText } from "../../lib/knowledge.js";
 
 export const info = {
   name: "AI4Chat",
@@ -62,7 +63,10 @@ export async function getAIAnswer(q, userId = null) {
     }
   }
 
-  const fullPrompt = `${persona}${context}\n\nUser: ${q}`;
+  // Basis pengetahuan (data bisnis/produk yang diajarkan Owner)
+  const knowledge = getKnowledgeText();
+
+  const fullPrompt = `${persona}${knowledge}${context}\n\nUser: ${q}`;
 
   let answer = null;
 

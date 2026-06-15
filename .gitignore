@@ -1,4 +1,11 @@
 LenwySesi
 node_modules
-yarn.lockTelegram/database/users.json
+yarn.lock
+Telegram/database/users.json
 LenwySesi/
+
+# Runtime data (dibuat otomatis saat bot berjalan)
+WhatsApp/database/system/knowledge.json
+WhatsApp/database/system/antilink.json
+WhatsApp/database/system/command.log
+WhatsApp/database/game/players.json

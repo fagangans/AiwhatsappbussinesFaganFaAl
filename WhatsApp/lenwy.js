@@ -20,6 +20,8 @@ import "./database/Menu/LenwyMenu.js";
 import { getAIAnswer } from "./case/ai/ai4chat.js";
 import { getSession } from "./lib/gameSession.js";
 import { checkRate } from "./lib/rateLimit.js";
+import { logCommand } from "./lib/logger.js";
+import { isAntilink, containsGroupLink } from "./lib/antilink.js";
 
 // [ ===== Import Pustaka ===== ]
 import fs from "fs";
@@ -383,6 +385,24 @@ export default async (lenwy, m, meta) => {
     } catch (err) {
       console.error(`[${tag}] Gagal hapus pesan:`, err);
     }
+  }
+
+  // Catat aktivitas (audit log) untuk setiap pesan berisi teks
+  if (body && body.trim()) logCommand(normalizedSender, body.trim(), replyJid);
+
+  // [ Anti-Link ] Hapus link grup WA dari anggota biasa bila fitur aktif di grup ini.
+  if (
+    isGroup &&
+    !isAdmin &&
+    !isLenwy &&
+    isAntilink(replyJid) &&
+    containsGroupLink(body)
+  ) {
+    await deleteMessage(msg.key, "ANTILINK");
+    return safeSend({
+      text: `🛡️ *Anti-Link!*\n@${normalizedSender.split("@")[0]}, dilarang mengirim link grup di sini.`,
+      mentions: [normalizedSender],
+    });
   }
 
   let usedPrefix = null;
