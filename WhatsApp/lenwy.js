@@ -18,6 +18,7 @@
 import "./len.js";
 import "./database/Menu/LenwyMenu.js";
 import { getAIAnswer } from "./case/ai/ai4chat.js";
+import { getSession } from "./lib/gameSession.js";
 
 // [ ===== Import Pustaka ===== ]
 import fs from "fs";
@@ -361,6 +362,26 @@ export default async (lenwy, m, meta) => {
     }
   }
 
+  // [ Game Session Routing ]
+  // Jika user sedang bermain game dan kirim pesan tanpa prefix → dianggap jawaban game.
+  if (!usedPrefix && body.trim()) {
+    const gameSession = getSession(replyJid, normalizedSender);
+    if (gameSession?.onAnswer) {
+      try {
+        const handled = await gameSession.onAnswer(body.trim().toLowerCase(), {
+          LenwyText: (text) => safeSend({ text }),
+          safeSend,
+          replyJid,
+          normalizedSender,
+          pushname,
+        });
+        if (handled) return;
+      } catch (err) {
+        console.error(chalk.red("[GAME ERROR]"), err?.message || err);
+      }
+    }
+  }
+
   // [ Auto AI ]
   // Pesan TANPA prefix langsung dijawab AI (tanpa perlu mengetik .ai di depan).
   // Perintah biasa (mis. .ping, .menu) tetap pakai prefix seperti biasa.
@@ -371,10 +392,14 @@ export default async (lenwy, m, meta) => {
       (!isGroup || globalThis.autoAIPrivateOnly === false);
 
     if (autoAllowed) {
-      console.log(chalk.magenta.bold("[AUTO-AI]"), chalk.white(body.trim()));
-      const answer = await getAIAnswer(body.trim());
-      if (answer) return lenwyreply(`*Lenwy AI*\n\n${answer}`);
-      return lenwyreply("⚠️ AI sedang tidak merespon. Coba lagi sebentar lagi.");
+      // Skip Auto AI kalau ada game session aktif (agar jawaban tidak masuk ke AI)
+      const gameActive = getSession(replyJid, normalizedSender);
+      if (!gameActive) {
+        console.log(chalk.magenta.bold("[AUTO-AI]"), chalk.white(body.trim()));
+        const answer = await getAIAnswer(body.trim());
+        if (answer) return lenwyreply(`*Lenwy AI*\n\n${answer}`);
+        return lenwyreply("⚠️ AI sedang tidak merespon. Coba lagi sebentar lagi.");
+      }
     }
 
     // Tanpa prefix & Auto AI nonaktif → abaikan (kecuali mode noprefix)

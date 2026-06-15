@@ -44,6 +44,12 @@ globalThis.autoAI = true;
 // false = Auto AI juga aktif di dalam grup
 globalThis.autoAIPrivateOnly = true;
 
+// Persona AI — instruksi untuk membentuk gaya jawaban AI
+globalThis.aiPersona =
+  "Kamu adalah Lenwy AI. Jawab singkat, padat, dan jelas dalam 2-3 kalimat. " +
+  "Langsung ke inti tanpa basa-basi. Gunakan bahasa Indonesia yang natural dan santai. " +
+  "Jangan ulangi pertanyaan user.";
+
 // Custom Menu Image
 globalThis.MenuImage = path.join(__dirname, "./database/image/lenwy.jpeg"); // Ganti Dengan Path Gambar Menu
 

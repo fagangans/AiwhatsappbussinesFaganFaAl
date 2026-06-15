@@ -46,17 +46,20 @@ async function askPublicAI(q) {
 // Fungsi AI yang bisa dipakai ulang (oleh perintah .ai maupun mode Auto AI).
 // Mencoba beberapa sumber berurutan agar lebih andal.
 export async function getAIAnswer(q) {
+  const persona = globalThis.aiPersona || "";
+  const fullPrompt = persona ? `${persona}\n\nPertanyaan: ${q}` : q;
+
   let answer = null;
 
   try {
-    answer = await Ai4Chat(q);
+    answer = await Ai4Chat(fullPrompt);
   } catch (err) {
     console.error("Ai4Chat gagal:", err.message);
   }
 
   if (!answer) {
     try {
-      answer = await askPublicAI(q);
+      answer = await askPublicAI(fullPrompt);
     } catch (err) {
       console.error("PublicAI gagal:", err.message);
     }
