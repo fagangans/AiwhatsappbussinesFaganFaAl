@@ -74,18 +74,14 @@ export async function getAIAnswer(q, userId = null) {
   // Katalog produk toko (untuk jawab FAQ ketersediaan/harga barang)
   const catalog = getProductCatalogText();
 
-  // Web search — cari info dari internet untuk memperkaya jawaban
-  let webContext = "";
-  try {
-    const webResult = await searchWeb(q);
-    if (webResult) {
-      webContext =
-        "\n\nHasil pencarian web (gunakan sebagai referensi tambahan, rangkum dengan bahasa sendiri, jangan copy-paste mentah):\n" +
-        webResult;
-    }
-  } catch (err) {
-    console.error("Web search gagal:", err?.message || err);
-  }
+  // Web search — jalankan paralel agar tidak menambah waktu tunggu
+  const webPromise = searchWeb(q).catch(() => null);
+
+  const webResult = await webPromise;
+  const webContext = webResult
+    ? "\n\nHasil pencarian web (gunakan sebagai referensi tambahan, rangkum dengan bahasa sendiri, jangan copy-paste mentah):\n" +
+      webResult
+    : "";
 
   const fullPrompt = `${persona}${knowledge}${catalog}${webContext}${context}\n\nUser: ${q}`;
 
