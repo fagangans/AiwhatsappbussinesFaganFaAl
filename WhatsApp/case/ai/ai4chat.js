@@ -21,6 +21,7 @@ import { getHistory, addMessage, clearHistory } from "../../lib/aiMemory.js";
 import { getKnowledgeText } from "../../lib/knowledge.js";
 import { getModel } from "../../lib/aiModel.js";
 import { getProductCatalogText } from "../../lib/products.js";
+import { searchWeb } from "../../scrape/WebSearch.js";
 
 export const info = {
   name: "AI4Chat",
@@ -73,7 +74,20 @@ export async function getAIAnswer(q, userId = null) {
   // Katalog produk toko (untuk jawab FAQ ketersediaan/harga barang)
   const catalog = getProductCatalogText();
 
-  const fullPrompt = `${persona}${knowledge}${catalog}${context}\n\nUser: ${q}`;
+  // Web search — cari info dari internet untuk memperkaya jawaban
+  let webContext = "";
+  try {
+    const webResult = await searchWeb(q);
+    if (webResult) {
+      webContext =
+        "\n\nHasil pencarian web (gunakan sebagai referensi tambahan, rangkum dengan bahasa sendiri, jangan copy-paste mentah):\n" +
+        webResult;
+    }
+  } catch (err) {
+    console.error("Web search gagal:", err?.message || err);
+  }
+
+  const fullPrompt = `${persona}${knowledge}${catalog}${webContext}${context}\n\nUser: ${q}`;
 
   let answer = null;
 
