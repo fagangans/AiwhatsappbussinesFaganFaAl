@@ -85,6 +85,7 @@ export default async function handler(leni) {
     timer,
     onAnswer: async (input, ctx) => {
       const guess = input.toLowerCase().trim();
+      if (!guess) return false;
       if (guess === correctAnswer) {
         deleteSession(replyJid, normalizedSender);
         const player = addReward(normalizedSender, 35, 80);
@@ -96,7 +97,10 @@ export default async function handler(leni) {
         );
         return true;
       }
-      return false;
+      await ctx.LenwyText(
+        `❌ *Jawaban salah!*\n\nSilahkan jawab lagi, waktu masih berjalan!`
+      );
+      return true;
     },
   });
 

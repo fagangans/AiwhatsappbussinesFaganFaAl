@@ -137,7 +137,12 @@ export default async function handler(leni) {
         (a) => a.toLowerCase() === guess && !found.includes(a),
       );
 
-      if (matchIndex === -1) return false;
+      if (matchIndex === -1) {
+        await ctx.LenwyText(
+          `❌ *Jawaban salah atau sudah dijawab!*\n\nSilahkan jawab lagi, waktu masih berjalan!`,
+        );
+        return true;
+      }
 
       found.push(answers[matchIndex]);
 

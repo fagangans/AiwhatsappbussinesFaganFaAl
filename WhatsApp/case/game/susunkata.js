@@ -63,6 +63,8 @@ export default async function handler(leni) {
 
   const hintText = `Huruf pertama: *${originalWord.charAt(0).toUpperCase()}* | Huruf terakhir: *${originalWord.charAt(originalWord.length - 1).toUpperCase()}*`;
 
+  const startTime = Date.now();
+
   const timer = setTimeout(async () => {
     deleteSession(replyJid, normalizedSender);
     addLoss(normalizedSender);
@@ -83,17 +85,15 @@ export default async function handler(leni) {
       const answer = input.trim().toLowerCase();
       if (!answer) return false;
 
-      // Only process if the answer uses roughly the same letters
-      if (answer.length !== originalWord.length) return false;
-
-      deleteSession(replyJid, normalizedSender);
-
       if (answer === originalWord.toLowerCase()) {
+        deleteSession(replyJid, normalizedSender);
+        const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
         const player = addReward(normalizedSender, 35, 80);
         await ctx.LenwyText(
           `*Benar!*\n\n` +
             `Huruf acak: *${scrambled.toUpperCase()}*\n` +
-            `Jawaban: *${originalWord}*\n\n` +
+            `Jawaban: *${originalWord}*\n` +
+            `Waktu jawab: *${elapsedSec} detik*\n\n` +
             `+35 XP | +80 Balance\n\n` +
             `*Stats:*\n` +
             `- XP: ${player.xp}\n` +
@@ -101,12 +101,10 @@ export default async function handler(leni) {
             `- Level: ${player.level}`,
         );
       } else {
-        addLoss(normalizedSender);
         await ctx.LenwyText(
-          `*Salah!*\n\n` +
-            `Jawabanmu: *${answer}*\n` +
-            `Jawaban benar: *${originalWord}*\n\n` +
-            `Jangan menyerah, coba lagi!`,
+          `*Jawaban salah!*\n\n` +
+            `Jawabanmu: *${answer}*\n\n` +
+            `Silahkan jawab lagi, waktu masih berjalan!`,
         );
       }
       return true;

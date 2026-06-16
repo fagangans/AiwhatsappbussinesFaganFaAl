@@ -108,9 +108,8 @@ export default async function handler(leni) {
       const answer = parseInt(input, 10);
       if (isNaN(answer)) return false;
 
-      deleteSession(replyJid, normalizedSender);
-
       if (answer === correctAnswer) {
+        deleteSession(replyJid, normalizedSender);
         const player = addReward(normalizedSender, 50, 100);
         await ctx.LenwyText(
           `✅ *Benar!*\n\n` +
@@ -122,12 +121,10 @@ export default async function handler(leni) {
             `• Level: ${player.level}`,
         );
       } else {
-        addLoss(normalizedSender);
         await ctx.LenwyText(
-          `❌ *Salah!*\n\n` +
-            `Jawabanmu: *${answer}*\n` +
-            `Jawaban benar: *${correctAnswer}*\n` +
-            `Jangan menyerah, coba lagi!`,
+          `❌ *Jawaban salah!*\n\n` +
+            `Jawabanmu: *${answer}*\n\n` +
+            `Silahkan jawab lagi, waktu masih berjalan!`,
         );
       }
       return true;
