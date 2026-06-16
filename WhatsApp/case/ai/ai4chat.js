@@ -22,6 +22,7 @@ import { getHistory, addMessage, clearHistory } from "../../lib/aiMemory.js";
 import { getKnowledgeText } from "../../lib/knowledge.js";
 import { getModel } from "../../lib/aiModel.js";
 import { getProductCatalogText } from "../../lib/products.js";
+import { getCommandCatalogText } from "../../lib/commandCatalog.js";
 import { searchWeb } from "../../scrape/WebSearch.js";
 
 export const info = {
@@ -80,7 +81,7 @@ function withTimeout(promise, ms) {
 
 // Fungsi AI yang bisa dipakai ulang (oleh perintah .ai maupun mode Auto AI).
 // Mendukung multi-model: gemini-flash, gemini-pro, atau default (Ai4Chat scraper).
-export async function getAIAnswer(q, userId = null) {
+export async function getAIAnswer(q, userId = null, commandsMap = null) {
   const persona = globalThis.aiPersona || "";
   const model = userId ? getModel(userId) : "gemini-flash";
 
@@ -103,6 +104,9 @@ export async function getAIAnswer(q, userId = null) {
   // Katalog produk toko (untuk jawab FAQ ketersediaan/harga barang)
   const catalog = getProductCatalogText();
 
+  // Katalog fitur/command bot (untuk merekomendasikan command yang tepat)
+  const commandCatalog = getCommandCatalogText(commandsMap);
+
   // Web search — hanya dijalankan kalau pertanyaan memang butuh info terkini,
   // dan dibatasi waktu maksimum agar tidak memperlambat chat biasa (sapaan, dll).
   let webResult = null;
@@ -114,7 +118,7 @@ export async function getAIAnswer(q, userId = null) {
       webResult
     : "";
 
-  const fullPrompt = `${persona}${knowledge}${catalog}${webContext}${context}\n\nUser: ${q}`;
+  const fullPrompt = `${persona}${knowledge}${catalog}${commandCatalog}${webContext}${context}\n\nUser: ${q}`;
 
   let answer = null;
 
@@ -203,7 +207,7 @@ export async function getAIAnswer(q, userId = null) {
 }
 
 export default async function handler(lenwy) {
-  const { command, q, LenwyText, LenwyWait, normalizedSender } = lenwy;
+  const { command, q, LenwyText, LenwyWait, normalizedSender, commands } = lenwy;
 
   if (command === "resetai") {
     clearHistory(normalizedSender);
@@ -215,7 +219,7 @@ export default async function handler(lenwy) {
 
   LenwyWait();
 
-  const answer = await getAIAnswer(q, normalizedSender);
+  const answer = await getAIAnswer(q, normalizedSender, commands);
 
   if (!answer) {
     return LenwyText("⚠️ Semua sumber AI sedang tidak merespon. Coba lagi nanti.");

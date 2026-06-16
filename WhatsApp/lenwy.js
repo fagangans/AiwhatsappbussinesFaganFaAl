@@ -448,7 +448,7 @@ export default async (lenwy, m, meta) => {
       const gameActive = getSession(replyJid, normalizedSender);
       if (!gameActive) {
         console.log(chalk.magenta.bold("[AUTO-AI]"), chalk.white(body.trim()));
-        const answer = await getAIAnswer(body.trim(), normalizedSender);
+        const answer = await getAIAnswer(body.trim(), normalizedSender, commands);
         if (answer) return lenwyreply(answer);
         return lenwyreply("⚠️ AI sedang tidak merespon. Coba lagi sebentar lagi.");
       }
