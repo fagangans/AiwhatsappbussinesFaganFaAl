@@ -15,6 +15,7 @@
 */
 
 import axios from 'axios';
+import { formatAi4ChatAnswer } from '../lib/textFormatter.js';
 export async function Ai4Chat(prompt) {
     const url = new URL("https://yw85opafq6.execute-api.us-east-1.amazonaws.com/default/boss_mode_15aug");
     url.search = new URLSearchParams({
@@ -38,7 +39,7 @@ export async function Ai4Chat(prompt) {
 
         if (!result) throw new Error("Empty AI response");
 
-        return result;
+        return formatAi4ChatAnswer(result);
 
     } catch (error) {
         console.error("Ai4Chat Error:", error.message);
