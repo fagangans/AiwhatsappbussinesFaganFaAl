@@ -49,6 +49,34 @@ async function askPublicAI(q) {
   return data?.data?.response || null;
 }
 
+// Kata kunci yang menandakan butuh info terkini/real-time dari internet
+const WEB_SEARCH_KEYWORDS = [
+  "hari ini", "sekarang", "terbaru", "terkini", "terbaru ini", "saat ini",
+  "berita", "kabar", "viral", "trending", "update", "skor", "pertandingan",
+  "cuaca", "ramalan", "harga emas", "harga bbm", "kurs", "nilai tukar",
+  "kapan", "tanggal berapa", "jam berapa", "siapa presiden", "siapa menteri",
+  "hasil pemilu", "covid", "gempa", "bencana", "rilis", "launching",
+];
+
+const GREETING_REGEX =
+  /^(hai|halo|hallo|hello|hi|p|pagi|siang|sore|malam|test|tes|woi|woy|ok|oke|sip|makasih|terima kasih|thanks)\b/i;
+
+// Tentukan apakah query butuh pencarian web (info terkini) atau cukup dijawab dari pengetahuan AI
+function needsWebSearch(q) {
+  const text = q.toLowerCase().trim();
+  if (text.length < 4) return false;
+  if (GREETING_REGEX.test(text)) return false;
+  return WEB_SEARCH_KEYWORDS.some((k) => text.includes(k));
+}
+
+// Cegah web search menggantung lama — kalau lewat batas waktu, lanjut tanpa hasil web
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
 // Fungsi AI yang bisa dipakai ulang (oleh perintah .ai maupun mode Auto AI).
 // Mendukung multi-model: gemini-flash, gemini-pro, atau default (Ai4Chat scraper).
 export async function getAIAnswer(q, userId = null) {
@@ -74,10 +102,12 @@ export async function getAIAnswer(q, userId = null) {
   // Katalog produk toko (untuk jawab FAQ ketersediaan/harga barang)
   const catalog = getProductCatalogText();
 
-  // Web search — jalankan paralel agar tidak menambah waktu tunggu
-  const webPromise = searchWeb(q).catch(() => null);
-
-  const webResult = await webPromise;
+  // Web search — hanya dijalankan kalau pertanyaan memang butuh info terkini,
+  // dan dibatasi waktu maksimum agar tidak memperlambat chat biasa (sapaan, dll).
+  let webResult = null;
+  if (needsWebSearch(q)) {
+    webResult = await withTimeout(searchWeb(q).catch(() => null), 12000);
+  }
   const webContext = webResult
     ? "\n\nHasil pencarian web (gunakan sebagai referensi tambahan, rangkum dengan bahasa sendiri, jangan copy-paste mentah):\n" +
       webResult
