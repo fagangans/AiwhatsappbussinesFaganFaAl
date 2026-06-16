@@ -31,6 +31,7 @@ import os from "os";
 import fs from "fs";
 
 import attachSticker from "./lib/sticker.js";
+import { startFollowUpScheduler } from "./lib/followupScheduler.js";
 
 // Simpan ID Interval Polling
 let pollingIntervalId = null;
@@ -84,6 +85,10 @@ async function connectToWhatsApp() {
   });
 
   attachSticker(lenwy);
+
+  // Simpan referensi socket aktif agar bisa dipakai kirim pesan proaktif (mis. follow-up CS)
+  globalThis.waSocket = lenwy;
+  startFollowUpScheduler();
 
   // startPolling(lenwy)
 

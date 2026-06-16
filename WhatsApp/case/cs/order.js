@@ -11,8 +11,10 @@ import {
 } from "../../lib/products.js";
 import { createOrder } from "../../lib/orders.js";
 import { notifyAdmins } from "../../lib/notifyAdmin.js";
+import { scheduleFollowUp, cancelFollowUps } from "../../lib/followups.js";
 
 const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 menit per langkah, reset setiap langkah maju
+const FOLLOWUP_DELAY = 24 * 60 * 60 * 1000; // follow-up dikirim 24 jam setelah batal/timeout
 
 export const info = {
   name: "Order",
@@ -37,7 +39,7 @@ function formatCatalog(products) {
   return products
     .map(
       (p, i) =>
-        `${i + 1}. *${p.name}* - Rp${p.price.toLocaleString("id-ID")} (Stok: ${p.stock})${p.desc ? `\n   ${p.desc}` : ""}`,
+        `${i + 1}. *${p.name}* - Rp${p.price.toLocaleString("id-ID")}${p.desc ? `\n   ${p.desc}` : ""}`,
     )
     .join("\n\n");
 }
@@ -61,6 +63,16 @@ export default async function handler(leni) {
   function makeTimer() {
     return setTimeout(async () => {
       deleteSession(replyJid, normalizedSender);
+      if (state.product) {
+        scheduleFollowUp({
+          chatId: replyJid,
+          customerId: normalizedSender,
+          customerName: pushname,
+          product: state.product.name,
+          reason: "timeout",
+          delayMs: FOLLOWUP_DELAY,
+        });
+      }
       await LenwyText(
         "⏰ *Waktu Habis!* Sesi pemesanan dibatalkan karena tidak ada respon. Ketik *.order* untuk mulai lagi.",
       );
@@ -73,6 +85,16 @@ export default async function handler(leni) {
 
     if (lower === "batal") {
       deleteSession(replyJid, normalizedSender);
+      if (state.product) {
+        scheduleFollowUp({
+          chatId: replyJid,
+          customerId: normalizedSender,
+          customerName: pushname,
+          product: state.product.name,
+          reason: "batal",
+          delayMs: FOLLOWUP_DELAY,
+        });
+      }
       await ctx.LenwyText("❌ Pesanan dibatalkan.");
       return true;
     }
@@ -95,7 +117,7 @@ export default async function handler(leni) {
       state.step = "jumlah";
       setSession(replyJid, normalizedSender, { type: "order", timer: makeTimer(), onAnswer });
       await ctx.LenwyText(
-        `✅ Produk: *${product.name}*\n\nBerapa jumlah yang ingin dipesan? (Stok tersedia: ${product.stock})`,
+        `✅ Produk: *${product.name}*\n\nBerapa jumlah yang ingin dipesan?`,
       );
       return true;
     }
@@ -108,7 +130,7 @@ export default async function handler(leni) {
       }
       if (qty > state.product.stock) {
         await ctx.LenwyText(
-          `⚠️ Stok tidak cukup. Stok tersedia: ${state.product.stock}. Masukkan jumlah lain.`,
+          "⚠️ Maaf, jumlah yang kamu minta melebihi stok yang ada. Masukkan jumlah lain.",
         );
         return true;
       }
@@ -152,6 +174,7 @@ export default async function handler(leni) {
       }
 
       deleteSession(replyJid, normalizedSender);
+      cancelFollowUps(normalizedSender);
 
       const total = state.product.price * state.qty;
       adjustStock(state.productIndex, -state.qty);
