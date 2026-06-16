@@ -14,6 +14,7 @@
 
 */
 
+import "dotenv/config";
 import chalk from "chalk";
 import figlet from "figlet";
 import { promisify } from "util";

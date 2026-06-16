@@ -1,5 +1,6 @@
 LenwySesi
 node_modules
+.env
 yarn.lock
 Telegram/database/users.json
 LenwySesi/
@@ -8,4 +9,5 @@ LenwySesi/
 WhatsApp/database/system/knowledge.json
 WhatsApp/database/system/antilink.json
 WhatsApp/database/system/command.log
+WhatsApp/database/system/aimodel.json
 WhatsApp/database/game/players.json

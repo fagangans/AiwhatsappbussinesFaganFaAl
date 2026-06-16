@@ -1,4 +1,4 @@
-/*  
+/*
 
   Made By Lenwy
   Base : Lenwy
@@ -16,8 +16,10 @@
 
 import axios from "axios";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
+import { askGemini } from "../../scrape/Gemini.js";
 import { getHistory, addMessage, clearHistory } from "../../lib/aiMemory.js";
 import { getKnowledgeText } from "../../lib/knowledge.js";
+import { getModel } from "../../lib/aiModel.js";
 
 export const info = {
   name: "AI4Chat",
@@ -46,9 +48,10 @@ async function askPublicAI(q) {
 }
 
 // Fungsi AI yang bisa dipakai ulang (oleh perintah .ai maupun mode Auto AI).
-// Bila diberi userId, AI akan ingat konteks percakapan sebelumnya.
+// Mendukung multi-model: gemini-flash, gemini-pro, atau default (Ai4Chat scraper).
 export async function getAIAnswer(q, userId = null) {
   const persona = globalThis.aiPersona || "";
+  const model = userId ? getModel(userId) : "gemini-flash";
 
   // Susun konteks dari riwayat percakapan
   let context = "";
@@ -70,17 +73,36 @@ export async function getAIAnswer(q, userId = null) {
 
   let answer = null;
 
-  try {
-    answer = await Ai4Chat(fullPrompt);
-  } catch (err) {
-    console.error("Ai4Chat gagal:", err.message);
-  }
-
-  if (!answer) {
+  // Gemini models (gemini-flash / gemini-pro)
+  if (model.startsWith("gemini")) {
     try {
-      answer = await askPublicAI(fullPrompt);
+      answer = await askGemini(fullPrompt, model);
     } catch (err) {
-      console.error("PublicAI gagal:", err.message);
+      console.error(`Gemini (${model}) gagal:`, err?.message || err);
+    }
+
+    // Fallback ke Ai4Chat bila Gemini gagal
+    if (!answer) {
+      try {
+        answer = await Ai4Chat(fullPrompt);
+      } catch (err) {
+        console.error("Ai4Chat fallback gagal:", err.message);
+      }
+    }
+  } else {
+    // Default model: Ai4Chat → PublicAI fallback
+    try {
+      answer = await Ai4Chat(fullPrompt);
+    } catch (err) {
+      console.error("Ai4Chat gagal:", err.message);
+    }
+
+    if (!answer) {
+      try {
+        answer = await askPublicAI(fullPrompt);
+      } catch (err) {
+        console.error("PublicAI gagal:", err.message);
+      }
     }
   }
 

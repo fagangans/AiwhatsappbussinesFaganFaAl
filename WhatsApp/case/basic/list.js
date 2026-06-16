@@ -34,7 +34,8 @@ export default async function handler(leni) {
     `➤ .remini — HD-kan foto dengan AI\n` +
     `➤ .tambahdata [teks] — Ajari AI data baru (Owner)\n` +
     `➤ .listdata — Lihat data yang diajarkan ke AI\n` +
-    `➤ .hapusdata [nomor] — Hapus data AI\n\n` +
+    `➤ .hapusdata [nomor] — Hapus data AI\n` +
+    `➤ .aimodel [model] — Pilih model AI (gemini-flash/gemini-pro/default)\n\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n` +
     `📥 *DOWNLOAD*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n` +
