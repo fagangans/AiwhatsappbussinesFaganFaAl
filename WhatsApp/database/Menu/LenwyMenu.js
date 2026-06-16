@@ -46,9 +46,9 @@ globalThis.getOrderStats = function () {
 *WhatsApp Bot To Solve Your Problems*
 
 📑 *Information Bot*
-*Creator : Lenwy*
-*Contact : wa.me/6283829814737*
-*Youtube Channel : Lenwy*\n`),
+*Creator : FaganFaAl*
+*Contact : wa.me/089695368844*
+*Instagram : *\n`),
   // List Menu =========================
   (globalThis.storelist = `🎁 *Order Statistics*
 *Order : ${getOrderStats().totalOrders}*
