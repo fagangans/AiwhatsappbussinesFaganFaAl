@@ -24,6 +24,8 @@ const LABELS = {
   "default": "Default (Ai4Chat) — AI scraper gratis",
   "gemini-flash": "Gemini 2.5 Flash — cepat & pintar (Rekomendasi)",
   "gemini-pro": "Gemini 2.5 Pro — paling pintar, sedikit lebih lambat",
+  "groq-llama": "Groq Llama 3.3 70B — pintar & super cepat",
+  "groq-fast": "Groq Llama 3.1 8B — paling cepat, sedikit lebih simpel",
 };
 
 // Handler

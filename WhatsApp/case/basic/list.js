@@ -35,7 +35,7 @@ export default async function handler(leni) {
     `➤ .tambahdata [teks] — Ajari AI data baru (Owner)\n` +
     `➤ .listdata — Lihat data yang diajarkan ke AI\n` +
     `➤ .hapusdata [nomor] — Hapus data AI\n` +
-    `➤ .aimodel [model] — Pilih model AI (gemini-flash/gemini-pro/default)\n\n` +
+    `➤ .aimodel [model] — Pilih model AI (gemini-flash/gemini-pro/groq-llama/groq-fast/default)\n\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n` +
     `📥 *DOWNLOAD*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n` +

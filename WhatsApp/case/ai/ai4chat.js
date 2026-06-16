@@ -17,6 +17,7 @@
 import axios from "axios";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
 import { askGemini } from "../../scrape/Gemini.js";
+import { askGroq } from "../../scrape/Groq.js";
 import { getHistory, addMessage, clearHistory } from "../../lib/aiMemory.js";
 import { getKnowledgeText } from "../../lib/knowledge.js";
 import { getModel } from "../../lib/aiModel.js";
@@ -133,8 +134,41 @@ export async function getAIAnswer(q, userId = null) {
         console.error("Ai4Chat fallback gagal:", err.message);
       }
     }
+
+    // Fallback terakhir ke Groq (provider independen) bila keduanya gagal
+    if (!answer) {
+      try {
+        answer = await askGroq(fullPrompt, "groq-llama");
+      } catch (err) {
+        console.error("Groq fallback gagal:", err?.message || err);
+      }
+    }
+  } else if (model.startsWith("groq")) {
+    // Groq models (groq-llama / groq-fast)
+    try {
+      answer = await askGroq(fullPrompt, model);
+    } catch (err) {
+      console.error(`Groq (${model}) gagal:`, err?.message || err);
+    }
+
+    // Fallback ke Ai4Chat bila Groq gagal
+    if (!answer) {
+      try {
+        answer = await Ai4Chat(fullPrompt);
+      } catch (err) {
+        console.error("Ai4Chat fallback gagal:", err.message);
+      }
+    }
+
+    if (!answer) {
+      try {
+        answer = await askPublicAI(fullPrompt);
+      } catch (err) {
+        console.error("PublicAI fallback gagal:", err.message);
+      }
+    }
   } else {
-    // Default model: Ai4Chat → PublicAI fallback
+    // Default model: Ai4Chat → PublicAI → Groq
     try {
       answer = await Ai4Chat(fullPrompt);
     } catch (err) {
@@ -146,6 +180,15 @@ export async function getAIAnswer(q, userId = null) {
         answer = await askPublicAI(fullPrompt);
       } catch (err) {
         console.error("PublicAI gagal:", err.message);
+      }
+    }
+
+    // Fallback terakhir ke Groq (provider independen) bila keduanya gagal
+    if (!answer) {
+      try {
+        answer = await askGroq(fullPrompt, "groq-llama");
+      } catch (err) {
+        console.error("Groq fallback gagal:", err?.message || err);
       }
     }
   }

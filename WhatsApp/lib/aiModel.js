@@ -24,8 +24,9 @@ function save(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-// Model yang tersedia: "default" (Ai4Chat/scraper lama), "gemini-flash", "gemini-pro"
-const VALID = ["default", "gemini-flash", "gemini-pro"];
+// Model yang tersedia: "default" (Ai4Chat/scraper lama), "gemini-flash", "gemini-pro",
+// "groq-llama", "groq-fast" (Groq — provider independen, untuk cadangan/alternatif)
+const VALID = ["default", "gemini-flash", "gemini-pro", "groq-llama", "groq-fast"];
 
 export function getModel(userId) {
   const id = extractId(userId);
