@@ -60,6 +60,17 @@ export default async function handler(leni) {
     `➤ .ss [link] — Screenshot website\n` +
     `➤ .removebg — Hapus background foto\n\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `🛍️ *CUSTOMER SERVICE*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `➤ .produk / .katalog — Lihat katalog produk\n` +
+    `➤ .order / .pesan — Mulai pesan produk lewat chat\n` +
+    `➤ .tambahproduk [nama|harga|stok|deskripsi] — Tambah produk (Owner)\n` +
+    `➤ .hapusproduk [nama] — Hapus produk (Owner)\n` +
+    `➤ .editstok [nama|stok] — Ubah stok produk (Owner)\n` +
+    `➤ .listpesanan — Lihat pesanan masuk (Owner)\n` +
+    `➤ .detailpesanan [id] — Detail satu pesanan (Owner)\n` +
+    `➤ .updatepesanan [id|status] — Ubah status pesanan (Owner)\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
     `🎮 *GAME*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n` +
     `➤ .gamemenu — Lihat daftar lengkap game\n` +

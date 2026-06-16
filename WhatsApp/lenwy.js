@@ -425,6 +425,7 @@ export default async (lenwy, m, meta) => {
           replyJid,
           normalizedSender,
           pushname,
+          rawBody: body.trim(),
         });
         if (handled) return;
       } catch (err) {

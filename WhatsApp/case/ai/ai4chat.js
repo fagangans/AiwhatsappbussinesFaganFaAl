@@ -20,6 +20,7 @@ import { askGemini } from "../../scrape/Gemini.js";
 import { getHistory, addMessage, clearHistory } from "../../lib/aiMemory.js";
 import { getKnowledgeText } from "../../lib/knowledge.js";
 import { getModel } from "../../lib/aiModel.js";
+import { getProductCatalogText } from "../../lib/products.js";
 
 export const info = {
   name: "AI4Chat",
@@ -69,7 +70,10 @@ export async function getAIAnswer(q, userId = null) {
   // Basis pengetahuan (data bisnis/produk yang diajarkan Owner)
   const knowledge = getKnowledgeText();
 
-  const fullPrompt = `${persona}${knowledge}${context}\n\nUser: ${q}`;
+  // Katalog produk toko (untuk jawab FAQ ketersediaan/harga barang)
+  const catalog = getProductCatalogText();
+
+  const fullPrompt = `${persona}${knowledge}${catalog}${context}\n\nUser: ${q}`;
 
   let answer = null;
 

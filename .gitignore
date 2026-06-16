@@ -11,3 +11,5 @@ WhatsApp/database/system/antilink.json
 WhatsApp/database/system/command.log
 WhatsApp/database/system/aimodel.json
 WhatsApp/database/game/players.json
+WhatsApp/database/cs/products.json
+WhatsApp/database/cs/orders.json

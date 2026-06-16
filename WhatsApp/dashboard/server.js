@@ -16,6 +16,8 @@ const KNOWLEDGE = path.join(ROOT, "system", "knowledge.json");
 const PREMIUM = path.join(ROOT, "premium.json");
 const CREATOR = path.join(ROOT, "creator.json");
 const LOG = path.join(ROOT, "system", "command.log");
+const PRODUCTS = path.join(ROOT, "cs", "products.json");
+const ORDERS = path.join(ROOT, "cs", "orders.json");
 
 const PASS = process.env.DASHBOARD_PASS || "lenwy";
 const PORT = process.env.DASHBOARD_PORT || 3000;
@@ -52,11 +54,15 @@ app.get("/api/stats", (req, res) => {
   const knowledge = readJSON(KNOWLEDGE, []);
   const premium = readJSON(PREMIUM, []);
   const creator = readJSON(CREATOR, []);
+  const products = readJSON(PRODUCTS, []);
+  const orders = readJSON(ORDERS, []);
 
   const top = Object.entries(players)
     .map(([id, p]) => ({ id, ...p }))
     .sort((a, b) => (b.xp || 0) - (a.xp || 0))
     .slice(0, 10);
+
+  const recentOrders = orders.slice(-20).reverse();
 
   let recentLogs = [];
   try {
@@ -75,12 +81,54 @@ app.get("/api/stats", (req, res) => {
       premium: premium.length,
       creator: creator.length,
       knowledge: knowledge.length,
+      products: products.length,
+      orders: orders.length,
     },
     top,
     knowledge,
     premium,
     recentLogs,
+    products,
+    orders: recentOrders,
   });
+});
+
+// ---- API: produk ----
+app.post("/api/products/add", (req, res) => {
+  if (!auth(req, res)) return;
+  const name = (req.body?.name || "").trim();
+  const price = parseInt(req.body?.price, 10);
+  const stock = parseInt(req.body?.stock, 10);
+  const desc = (req.body?.desc || "").trim();
+  if (!name || isNaN(price) || isNaN(stock)) {
+    return res.json({ ok: false, error: "Nama/harga/stok tidak valid." });
+  }
+  const list = readJSON(PRODUCTS, []);
+  list.push({ name, price, stock, desc });
+  writeJSON(PRODUCTS, list);
+  res.json({ ok: true });
+});
+
+app.post("/api/products/remove", (req, res) => {
+  if (!auth(req, res)) return;
+  const name = (req.body?.name || "").trim().toLowerCase();
+  const list = readJSON(PRODUCTS, []).filter((p) => p.name.toLowerCase() !== name);
+  writeJSON(PRODUCTS, list);
+  res.json({ ok: true });
+});
+
+// ---- API: pesanan ----
+app.post("/api/orders/status", (req, res) => {
+  if (!auth(req, res)) return;
+  const id = Number(req.body?.id);
+  const status = (req.body?.status || "").trim();
+  if (!id || !status) return res.json({ ok: false, error: "ID/status kosong." });
+  const orders = readJSON(ORDERS, []);
+  const order = orders.find((o) => o.id === id);
+  if (!order) return res.json({ ok: false, error: "Pesanan tidak ditemukan." });
+  order.status = status;
+  writeJSON(ORDERS, orders);
+  res.json({ ok: true });
 });
 
 // ---- API: premium ----
@@ -198,6 +246,24 @@ const PAGE = `<!DOCTYPE html>
   </div>
 
   <div class="panel">
+    <h2>🛍️ Katalog Produk</h2>
+    <div class="row">
+      <input id="prName" placeholder="Nama produk" />
+      <input id="prPrice" placeholder="Harga (mis. 50000)" />
+      <input id="prStock" placeholder="Stok" />
+      <input id="prDesc" placeholder="Deskripsi (opsional)" />
+      <input id="prPass" type="password" placeholder="Password" />
+      <button onclick="addProduct()">Tambah</button>
+    </div>
+    <ul id="prList"></ul>
+  </div>
+
+  <div class="panel">
+    <h2>📦 Pesanan Masuk</h2>
+    <table id="orderTable"><thead><tr><th>ID</th><th>Produk</th><th>Qty</th><th>Total</th><th>Nama</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="panel">
     <h2>📜 Log Terbaru</h2>
     <div class="logs" id="logs"></div>
   </div>
@@ -212,6 +278,8 @@ async function load() {
     ['Premium', d.counts.premium],
     ['Owner', d.counts.creator],
     ['Data AI', d.counts.knowledge],
+    ['Produk', d.counts.products],
+    ['Pesanan', d.counts.orders],
   ].map(([l,n]) => '<div class="card"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>').join('');
 
   document.querySelector('#leaderboard tbody').innerHTML = d.top.map((p,i) =>
@@ -225,6 +293,14 @@ async function load() {
   document.getElementById('kbList').innerHTML = d.knowledge.map((t,i) =>
     '<li><span>'+(i+1)+'. '+t+'</span><button class="del" onclick="rmKnowledge('+(i+1)+')">Hapus</button></li>'
   ).join('') || '<li>Belum ada data</li>';
+
+  document.getElementById('prList').innerHTML = d.products.map((p) =>
+    '<li><span>'+p.name+' - Rp'+p.price.toLocaleString('id-ID')+' (Stok: '+p.stock+')</span><button class="del" onclick="rmProduct(\\''+p.name.replace(/'/g,"\\\\'")+'\\')">Hapus</button></li>'
+  ).join('') || '<li>Belum ada produk</li>';
+
+  document.querySelector('#orderTable tbody').innerHTML = d.orders.map((o) =>
+    '<tr><td>#'+o.id+'</td><td>'+o.product+'</td><td>'+o.qty+'</td><td>Rp'+o.total.toLocaleString('id-ID')+'</td><td>'+o.customerName+'</td><td>'+o.status+'</td><td><button onclick="updateOrder('+o.id+')">Update</button></td></tr>'
+  ).join('') || '<tr><td colspan=7>Belum ada pesanan</td></tr>';
 
   document.getElementById('logs').textContent = d.recentLogs.join('\\n') || 'Belum ada log';
 }
@@ -253,6 +329,30 @@ async function addKnowledge() {
 async function rmKnowledge(index) {
   const pass = prompt('Password:');
   if (pass && await post('/api/knowledge/remove', { index, pass })) load();
+}
+async function addProduct() {
+  const name = document.getElementById('prName').value;
+  const price = document.getElementById('prPrice').value;
+  const stock = document.getElementById('prStock').value;
+  const desc = document.getElementById('prDesc').value;
+  const pass = document.getElementById('prPass').value;
+  if (await post('/api/products/add', { name, price, stock, desc, pass })) {
+    document.getElementById('prName').value='';
+    document.getElementById('prPrice').value='';
+    document.getElementById('prStock').value='';
+    document.getElementById('prDesc').value='';
+    load();
+  }
+}
+async function rmProduct(name) {
+  const pass = prompt('Password:');
+  if (pass && await post('/api/products/remove', { name, pass })) load();
+}
+async function updateOrder(id) {
+  const status = prompt('Status baru (mis. Sedang Diproses, Dikirim, Selesai):');
+  if (!status) return;
+  const pass = prompt('Password:');
+  if (pass && await post('/api/orders/status', { id, status, pass })) load();
 }
 
 load();
