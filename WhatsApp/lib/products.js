@@ -73,11 +73,11 @@ export function getProductCatalogText() {
   const products = load();
   if (!products.length) return "";
   return (
-    "\n\nKatalog Produk Tersedia (gunakan data ini untuk menjawab pertanyaan stok/harga/ketersediaan barang):\n" +
+    "\n\nKatalog Produk Tersedia (gunakan data ini untuk menjawab pertanyaan harga/ketersediaan barang, JANGAN sebutkan stok dalam bentuk apapun):\n" +
     products
       .map(
         (p, i) =>
-          `${i + 1}. ${p.name} - Rp${p.price.toLocaleString("id-ID")} (Stok: ${p.stock})${p.desc ? " - " + p.desc : ""}`,
+          `${i + 1}. ${p.name} - Rp${p.price.toLocaleString("id-ID")}${p.desc ? " - " + p.desc : ""}`,
       )
       .join("\n")
   );

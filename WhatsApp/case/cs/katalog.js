@@ -28,7 +28,7 @@ export default async function handler(leni) {
   const text = products
     .map(
       (p, i) =>
-        `${i + 1}. *${p.name}* - Rp${p.price.toLocaleString("id-ID")} (Stok: ${p.stock})${p.desc ? `\n   ${p.desc}` : ""}`,
+        `${i + 1}. *${p.name}* - Rp${p.price.toLocaleString("id-ID")}${p.desc ? `\n   ${p.desc}` : ""}`,
     )
     .join("\n\n");
 
