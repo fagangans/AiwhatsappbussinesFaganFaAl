@@ -112,5 +112,5 @@ export default async function handler(lenwy) {
     return LenwyText("⚠️ Semua sumber AI sedang tidak merespon. Coba lagi nanti.");
   }
 
-  await LenwyText(`*Lenwy AI*\n\n${answer}`);
+  await LenwyText(answer);
 }
