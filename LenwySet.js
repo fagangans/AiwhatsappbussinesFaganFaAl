@@ -16,7 +16,6 @@
 
 import chalk from "chalk";
 import figlet from "figlet";
-import { promisify } from "util";
 
 const terminalWidth = process.stdout.columns || 80;
 const maxWidth = Math.min(terminalWidth, 50);
@@ -59,8 +58,7 @@ const config = {
       );
     }
 
-    const asyncFiglet = promisify(figlet.text);
-    const logo = await asyncFiglet("Business CS", {
+    const logo = await figlet.text("Business CS", {
       font: "ANSI Shadow",
       horizontalLayout: "default",
       verticalLayout: "default",
