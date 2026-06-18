@@ -4,6 +4,8 @@ node_modules
 yarn.lock
 Telegram/database/users.json
 WhatsApp/database/business/business.db
+WhatsApp/database/business/business.db-shm
+WhatsApp/database/business/business.db-wal
 dashboard/uploads/*
 !dashboard/uploads/.gitkeep
 .env
