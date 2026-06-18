@@ -557,3 +557,7 @@ export function createDashboardUser(username, hashedPassword, name, role = "admi
 export function dashboardUserExists() {
   return db.prepare("SELECT COUNT(*) as c FROM dashboard_users").get().c > 0;
 }
+
+export function updateDashboardPassword(username, hashedPassword) {
+  db.prepare("UPDATE dashboard_users SET password = ? WHERE username = ?").run(hashedPassword, username);
+}

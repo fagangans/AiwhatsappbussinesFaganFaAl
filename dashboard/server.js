@@ -20,7 +20,7 @@ import db, {
   getAllBroadcasts, createBroadcast, updateBroadcastStatus,
   confirmPayment,
   getDashboardStats, getAnalytics,
-  getDashboardUser, createDashboardUser, dashboardUserExists,
+  getDashboardUser, createDashboardUser, dashboardUserExists, updateDashboardPassword,
   getMessageLogs, getCustomerOrders, getCustomerTickets,
 } from "../WhatsApp/database/business/db.js";
 
@@ -79,6 +79,19 @@ export default function startDashboard(lenwySocket = null) {
 
   app.get("/api/me", auth, (req, res) => {
     res.json(req.user);
+  });
+
+  app.put("/api/me/password", auth, (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: "Password baru minimal 6 karakter" });
+    }
+    const user = getDashboardUser(req.user.username);
+    if (!user || !bcrypt.compareSync(currentPassword || "", user.password)) {
+      return res.status(400).json({ error: "Password saat ini salah" });
+    }
+    updateDashboardPassword(user.username, bcrypt.hashSync(newPassword, 10));
+    res.json({ success: true });
   });
 
   // ===== DASHBOARD =====

@@ -674,8 +674,40 @@ async function renderSettings(el) {
             <button onclick="saveMessages()" class="btn btn-primary w-full">Simpan Pesan</button>
           </div>
         </div>
+        <div class="card p-6">
+          <h3 class="text-lg font-bold mb-4"><i class="fas fa-lock mr-2 text-red-500"></i>Ganti Password</h3>
+          <div class="space-y-3">
+            <div><label class="block text-sm font-medium mb-1">Password Saat Ini</label><input id="pwCurrent" type="password"></div>
+            <div><label class="block text-sm font-medium mb-1">Password Baru</label><input id="pwNew" type="password"></div>
+            <div><label class="block text-sm font-medium mb-1">Konfirmasi Password Baru</label><input id="pwConfirm" type="password"></div>
+            <button onclick="changePassword()" class="btn btn-primary w-full">Simpan Password</button>
+          </div>
+        </div>
       </div>
     </div>`;
+}
+
+async function changePassword() {
+  const currentPassword = document.getElementById("pwCurrent").value;
+  const newPassword = document.getElementById("pwNew").value;
+  const confirmPassword = document.getElementById("pwConfirm").value;
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    return toast("Semua kolom password harus diisi", "error");
+  }
+  if (newPassword !== confirmPassword) {
+    return toast("Konfirmasi password tidak cocok", "error");
+  }
+  if (newPassword.length < 6) {
+    return toast("Password baru minimal 6 karakter", "error");
+  }
+  const result = await api("/api/me/password", { method: "PUT", body: { currentPassword, newPassword } });
+  if (result.error) {
+    return toast(result.error, "error");
+  }
+  toast("Password berhasil diubah");
+  document.getElementById("pwCurrent").value = "";
+  document.getElementById("pwNew").value = "";
+  document.getElementById("pwConfirm").value = "";
 }
 
 async function saveProfile() {
