@@ -18,22 +18,31 @@ import chalk from "chalk";
 import figlet from "figlet";
 import { promisify } from "util";
 
-const terminalWidth = process.stdout.columns;
+const terminalWidth = process.stdout.columns || 80;
 const maxWidth = Math.min(terminalWidth, 50);
 
 // Konfigurasi Bot
 const config = {
   whatsapp: true,
   telegram: false,
+  dashboard: true,
 };
 
 // Fungsi utama
 (async () => {
   try {
+    // Start Dashboard
+    let dashboardApp = null;
+    if (config.dashboard) {
+      console.log(chalk.green.bold("\n🖥️  Menjalankan Business Dashboard"));
+      const { default: startDashboard } = await import("./dashboard/server.js");
+      dashboardApp = startDashboard();
+    }
+
     if (config.whatsapp) {
-      console.log(chalk.green.bold("\n🎁  Menjalankan Lenwy Bot WhatsApp"));
+      console.log(chalk.green.bold("\n🎁  Menjalankan WhatsApp Business CS Bot"));
       const { default: startWhatsApp } = await import("./WhatsApp/index.js");
-      startWhatsApp();
+      startWhatsApp(dashboardApp);
     } else {
       console.log(
         chalk.red.bold("\n❌  Bot WhatsApp Dinonaktifkan Di LenwySet.js"),
@@ -51,7 +60,7 @@ const config = {
     }
 
     const asyncFiglet = promisify(figlet.text);
-    const logo = await asyncFiglet("Lenwy", {
+    const logo = await asyncFiglet("Business CS", {
       font: "ANSI Shadow",
       horizontalLayout: "default",
       verticalLayout: "default",
@@ -62,15 +71,13 @@ const config = {
     console.log(chalk.blue.bold(logo));
 
     console.log(
-      chalk.white.bold(`${chalk.green.bold("📃  Informasi :")}         
-✉️  Script Lenwy Rebuild
-✉️  Author : Lenwy
-✉️  Gmail : ilenwyy@gmail.com
-✉️  Instagram : Ilenwy_
-✉️  Youtube : Lenwy
-🎁  Base : Lenwy
+      chalk.white.bold(`${chalk.green.bold("📃  Informasi :")}
+✉️  WhatsApp Business Customer Service Bot
+✉️  Base : Lenwy SCM
+✉️  Dashboard: http://localhost:${process.env.DASHBOARD_PORT || 3000}
+🎁  Features : CRM, Order, Ticket, Broadcast, FAQ, Analytics
 
-${chalk.green.bold("🎁  Subscribe Lenwy :D")}\n`),
+${chalk.green.bold("🎁  Business Ready!")}\n`),
     );
   } catch (err) {
     console.error(

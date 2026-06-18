@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Business Dashboard - WhatsApp CS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f0f2f5; }
+    .sidebar { transition: transform 0.3s ease; }
+    .sidebar-link { transition: all 0.2s; }
+    .sidebar-link:hover, .sidebar-link.active { background: rgba(255,255,255,0.1); border-radius: 8px; }
+    .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .stat-card { transition: transform 0.2s; }
+    .stat-card:hover { transform: translateY(-2px); }
+    .modal-overlay { background: rgba(0,0,0,0.5); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .badge-green { background: #dcfce7; color: #166534; }
+    .badge-yellow { background: #fef3c7; color: #92400e; }
+    .badge-red { background: #fecaca; color: #991b1b; }
+    .badge-blue { background: #dbeafe; color: #1e40af; }
+    .badge-gray { background: #f3f4f6; color: #374151; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 12px; font-weight: 600; color: #6b7280; border-bottom: 2px solid #e5e7eb; font-size: 0.875rem; }
+    td { padding: 12px; border-bottom: 1px solid #f3f4f6; font-size: 0.875rem; }
+    tr:hover td { background: #f9fafb; }
+    input, select, textarea { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.875rem; outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+    .btn { padding: 8px 16px; border-radius: 8px; font-weight: 500; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-success { background: #22c55e; color: white; }
+    .btn-success:hover { background: #16a34a; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; }
+    .btn-warning { background: #f59e0b; color: white; }
+    .btn-warning:hover { background: #d97706; }
+    .btn-outline { background: transparent; border: 1px solid #d1d5db; color: #374151; }
+    .btn-outline:hover { background: #f9fafb; }
+    @media (max-width: 768px) {
+      .sidebar { transform: translateX(-100%); position: fixed; z-index: 50; }
+      .sidebar.open { transform: translateX(0); }
+    }
+    .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 12px 20px; border-radius: 8px; color: white; font-weight: 500; animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Login Page -->
+    <div id="loginPage" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
+      <div class="card p-8 w-full max-w-md">
+        <div class="text-center mb-6">
+          <i class="fab fa-whatsapp text-5xl text-green-500 mb-3"></i>
+          <h1 class="text-2xl font-bold text-gray-800">Business Dashboard</h1>
+          <p class="text-gray-500 text-sm">WhatsApp Customer Service</p>
+        </div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <input type="text" id="loginUsername" placeholder="admin" autocomplete="username">
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <input type="password" id="loginPassword" placeholder="password" autocomplete="current-password">
+          </div>
+          <button onclick="login()" class="btn btn-primary w-full py-3">
+            <i class="fas fa-sign-in-alt mr-2"></i>Masuk
+          </button>
+          <p id="loginError" class="text-red-500 text-sm text-center hidden"></p>
+        </div>
+        <p class="text-center text-xs text-gray-400 mt-4">Default: admin / admin123</p>
+      </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="mainApp" class="hidden">
+      <!-- Sidebar -->
+      <aside id="sidebar" class="sidebar fixed left-0 top-0 h-full w-64 bg-gray-900 text-white p-4 overflow-y-auto">
+        <div class="flex items-center gap-3 mb-8 px-2">
+          <i class="fab fa-whatsapp text-3xl text-green-400"></i>
+          <div>
+            <h2 class="font-bold text-lg" id="sidebarBizName">Business CS</h2>
+            <span class="text-xs text-gray-400">Dashboard</span>
+          </div>
+        </div>
+        <nav class="space-y-1">
+          <a href="#" onclick="showPage('dashboard')" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 text-sm" data-page="dashboard">
+            <i class="fas fa-chart-pie w-5 text-center"></i> Dashboard
+          </a>
+          <a href="#" onclick="showPage('products')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="products">
+            <i class="fas fa-box w-5 text-center"></i> Produk
+          </a>
+          <a href="#" onclick="showPage('orders')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="orders">
+            <i class="fas fa-shopping-cart w-5 text-center"></i> Order
+          </a>
+          <a href="#" onclick="showPage('customers')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="customers">
+            <i class="fas fa-users w-5 text-center"></i> Customer
+          </a>
+          <a href="#" onclick="showPage('tickets')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="tickets">
+            <i class="fas fa-ticket-alt w-5 text-center"></i> Tiket Support
+          </a>
+          <a href="#" onclick="showPage('faq')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="faq">
+            <i class="fas fa-question-circle w-5 text-center"></i> FAQ
+          </a>
+          <a href="#" onclick="showPage('templates')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="templates">
+            <i class="fas fa-file-alt w-5 text-center"></i> Template
+          </a>
+          <a href="#" onclick="showPage('broadcast')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="broadcast">
+            <i class="fas fa-bullhorn w-5 text-center"></i> Broadcast
+          </a>
+          <a href="#" onclick="showPage('agents')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="agents">
+            <i class="fas fa-headset w-5 text-center"></i> Agents
+          </a>
+          <a href="#" onclick="showPage('analytics')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="analytics">
+            <i class="fas fa-chart-bar w-5 text-center"></i> Analytics
+          </a>
+          <a href="#" onclick="showPage('settings')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="settings">
+            <i class="fas fa-cog w-5 text-center"></i> Pengaturan
+          </a>
+        </nav>
+        <div class="absolute bottom-4 left-4 right-4">
+          <button onclick="logout()" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 w-full">
+            <i class="fas fa-sign-out-alt w-5 text-center"></i> Logout
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="ml-64 min-h-screen" id="mainContent">
+        <!-- Top Bar -->
+        <header class="bg-white shadow-sm px-6 py-4 flex items-center justify-between sticky top-0 z-10">
+          <div class="flex items-center gap-4">
+            <button onclick="toggleSidebar()" class="md:hidden text-gray-600">
+              <i class="fas fa-bars text-xl"></i>
+            </button>
+            <h1 class="text-xl font-bold text-gray-800" id="pageTitle">Dashboard</h1>
+          </div>
+          <div class="flex items-center gap-4">
+            <span class="text-sm text-gray-500" id="currentDate"></span>
+            <span class="text-sm font-medium text-gray-700" id="userName">Admin</span>
+          </div>
+        </header>
+
+        <!-- Page Content -->
+        <div class="p-6" id="pageContent"></div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modal Container -->
+  <div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
+    <div class="card p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" id="modalContent"></div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

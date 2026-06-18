@@ -18,6 +18,9 @@
 import "./len.js";
 import "./database/Menu/LenwyMenu.js";
 
+// [ ===== Business Module ===== ]
+import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
+
 // [ ===== Import Pustaka ===== ]
 import fs from "fs";
 import mime from "mime-types";
@@ -207,6 +210,10 @@ export default async (lenwy, m, meta) => {
   processedMessages.add(msg.key.id);
   setTimeout(() => processedMessages.delete(msg.key.id), 30000);
 
+  // Business Auto-Reply & Customer Tracking
+  const isBlocked = handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body);
+  if (isBlocked) return;
+
   const pplu = fs.readFileSync(globalThis.MenuImage);
   const len = {
     key: {
@@ -334,6 +341,12 @@ export default async (lenwy, m, meta) => {
       console.error(`[${tag}] Gagal hapus pesan:`, err);
     }
   }
+
+  // Welcome Message for New Customers
+  await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len);
+
+  // Away Message (Outside Business Hours)
+  await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len);
 
   let usedPrefix = null;
   for (const pre of globalThis.prefix) {

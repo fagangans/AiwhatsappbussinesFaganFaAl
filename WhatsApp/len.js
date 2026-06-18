@@ -36,16 +36,16 @@ globalThis.MenuImage = path.join(__dirname, "./database/image/lenwy.jpeg"); // G
 
 // Custom Message
 globalThis.mess = {
-  wait: "☕ *One Moment, Please*",
-  error: "⚠ *Gagal Saat Melakukan Proses*",
-  default: "📑 *Perintah Tidak Dikenali*",
-  admin: "⚠️ Fitur Ini Khusus Admin Grup.",
-  botadmin: "⚠️ Bot Harus Menjadi Admin Terlebih Dahulu.",
-  group: "⚠️ Fitur Ini Hanya Bisa Digunakan Di Grup.",
-  private: "⚠️ Fitur Ini Hanya Bisa Digunakan Di Private Chat.",
-  premium: "⚠️ Fitur Ini Khusus User Premium.",
-  order: "⚠ *Kamu Hanya Bisa Melakukan Pembayaran Di Private Chat.*",
-  creator: "⚠️ Fitur ini khusus Owner.",
-  disable: "🚫 Fitur Ini Sedang Dinonaktifkan Oleh Lenwy.",
-  maintenance: "🛠 Fitur Ini Sedang Dalam Perbaikan.",
+  wait: "☕ *Mohon tunggu sebentar...*",
+  error: "⚠ *Maaf, terjadi kesalahan. Silakan coba lagi.*",
+  default: "📑 *Perintah tidak dikenali. Ketik .menu untuk bantuan.*",
+  admin: "⚠️ Fitur ini khusus admin grup.",
+  botadmin: "⚠️ Bot harus menjadi admin terlebih dahulu.",
+  group: "⚠️ Fitur ini hanya bisa digunakan di grup.",
+  private: "⚠️ Fitur ini hanya bisa digunakan di private chat.",
+  premium: "⚠️ Fitur ini khusus user premium.",
+  order: "⚠ *Pembayaran hanya bisa dilakukan di private chat.*",
+  creator: "⚠️ Fitur ini khusus owner.",
+  disable: "🚫 Fitur ini sedang dinonaktifkan.",
+  maintenance: "🛠 Fitur ini sedang dalam perbaikan.",
 };

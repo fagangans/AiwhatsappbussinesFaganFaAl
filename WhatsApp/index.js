@@ -57,7 +57,10 @@ async function question(prompt) {
   });
 }
 
-async function connectToWhatsApp() {
+let dashboardApp = null;
+
+async function connectToWhatsApp(dashboard = null) {
+  if (dashboard) dashboardApp = dashboard;
   const { state, saveCreds } = await useMultiFileAuthState(
     path.resolve(__dirname, "../LenwySesi"),
   );
@@ -112,9 +115,14 @@ async function connectToWhatsApp() {
       }
 
       // Sambungkan Ulang
-      connectToWhatsApp();
+      connectToWhatsApp(dashboardApp);
     } else if (connection === "open") {
       console.log(chalk.green("✔  Bot Berhasil Terhubung Ke WhatsApp"));
+      // Connect dashboard to WhatsApp socket
+      if (dashboardApp && dashboardApp.setWaSocket) {
+        dashboardApp.setWaSocket(lenwy);
+        console.log(chalk.green("✔  Dashboard terhubung ke WhatsApp"));
+      }
     }
   });
 

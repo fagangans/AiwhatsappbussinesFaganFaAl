@@ -42,19 +42,21 @@ globalThis.getOrderStats = function () {
   return { totalOrders, totalAmount };
 };
 
-((globalThis.lenwymenu = `☕ *Lenwy SCM*
-*WhatsApp Bot To Solve Your Problems*
+((globalThis.lenwymenu = `🏢 *WhatsApp Business Customer Service*
+*Solusi Layanan Pelanggan Bisnis Anda*
 
-📑 *Information Bot*
-*Creator : Lenwy*
-*Contact : wa.me/6283829814737*
-*Youtube Channel : Lenwy*\n`),
-  // List Menu =========================
+📋 *Quick Menu:*
+• *.katalog* - Lihat produk
+• *.pesan* - Buat pesanan
+• *.cekorder* - Cek pesanan
+• *.faq* - Pertanyaan umum
+• *.buattiket* - Buat tiket support
+• *.rating* - Beri rating\n`),
   (globalThis.storelist = `🎁 *Order Statistics*
 *Order : ${getOrderStats().totalOrders}*
 *Transaksi : Rp${getOrderStats().totalAmount.toLocaleString("id-ID")}*
 
-*Contoh : Order A2*
+*Contoh : .pesan [SKU] x [jumlah]*
 
-📦 *Daftar Produk :*`));
+📦 *Ketik .katalog untuk daftar produk*`));
 

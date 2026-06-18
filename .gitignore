@@ -1,4 +1,9 @@
 LenwySesi
-node_modules
-yarn.lockTelegram/database/users.json
 LenwySesi/
+node_modules
+yarn.lock
+Telegram/database/users.json
+WhatsApp/database/business/business.db
+dashboard/uploads/*
+!dashboard/uploads/.gitkeep
+.env
