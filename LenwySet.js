@@ -16,32 +16,22 @@
 
 import chalk from "chalk";
 import figlet from "figlet";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { getAllBots } from "./WhatsApp/database/business/db.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const terminalWidth = process.stdout.columns || 80;
 const maxWidth = Math.min(terminalWidth, 50);
 
-// Konfigurasi Bot
 const config = {
   telegram: false,
   dashboard: true,
-  bots: [
-    { id: "bot1", name: "Bot 1" },
-    { id: "bot2", name: "Bot 2" },
-    { id: "bot3", name: "Bot 3" },
-    { id: "bot4", name: "Bot 4" },
-    { id: "bot5", name: "Bot 5" },
-    { id: "bot6", name: "Bot 6" },
-    { id: "bot7", name: "Bot 7" },
-    { id: "bot8", name: "Bot 8" },
-    { id: "bot9", name: "Bot 9" },
-    { id: "bot10", name: "Bot 10" },
-  ],
 };
 
-// Fungsi utama
 (async () => {
   try {
-    // Start Dashboard
     let dashboardApp = null;
     if (config.dashboard) {
       console.log(chalk.green.bold("\n🖥️  Menjalankan Business Dashboard"));
@@ -49,16 +39,25 @@ const config = {
       dashboardApp = startDashboard();
     }
 
-    if (config.bots.length > 0) {
-      console.log(chalk.green.bold(`\n🎁  Menjalankan ${config.bots.length} WhatsApp Business CS Bot`));
-      const { default: startWhatsApp } = await import("./WhatsApp/index.js");
-      for (const botConfig of config.bots) {
-        await startWhatsApp(dashboardApp, botConfig);
+    const { default: startWhatsApp } = await import("./WhatsApp/index.js");
+
+    if (dashboardApp) {
+      dashboardApp.connectBot = (botConfig) => startWhatsApp(dashboardApp, botConfig);
+    }
+
+    const dbBots = getAllBots();
+    const activeBots = dbBots.filter(b => {
+      const sessionPath = path.resolve(__dirname, "sessions", b.id);
+      return b.is_active && fs.existsSync(sessionPath);
+    });
+
+    if (activeBots.length > 0) {
+      console.log(chalk.green.bold(`\n🎁  Menjalankan ${activeBots.length} WhatsApp Business CS Bot`));
+      for (const bot of activeBots) {
+        await startWhatsApp(dashboardApp, { id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id });
       }
     } else {
-      console.log(
-        chalk.red.bold("\n❌  Tidak ada bot WhatsApp yang dikonfigurasi"),
-      );
+      console.log(chalk.yellow.bold("\n⚠️  Tidak ada bot yang sudah ter-pair. Tambahkan bot via Dashboard."));
     }
 
     if (config.telegram) {
@@ -86,7 +85,7 @@ const config = {
 ✉️  WhatsApp Business Customer Service Bot
 ✉️  Base : Lenwy SCM
 ✉️  Dashboard: http://localhost:${process.env.DASHBOARD_PORT || 3000}
-🎁  Bots: ${config.bots.length} bot dikonfigurasi
+🎁  Bots: ${activeBots.length} bot aktif (${dbBots.length} total terdaftar)
 🎁  Features : CRM, Order, Ticket, Broadcast, FAQ, Analytics
 
 ${chalk.green.bold("🎁  Business Ready!")}\n`),

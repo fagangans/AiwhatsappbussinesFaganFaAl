@@ -20,9 +20,11 @@ import db, {
   getAllBroadcasts, createBroadcast, updateBroadcastStatus,
   confirmPayment,
   getDashboardStats, getAnalytics,
-  getDashboardUser, createDashboardUser, dashboardUserExists, updateDashboardPassword,
+  getDashboardUser, getDashboardUserById, createDashboardUser, dashboardUserExists, updateDashboardPassword,
+  getAllDashboardUsers, deleteDashboardUser,
   getMessageLogs, getCustomerOrders, getCustomerTickets,
   getAllImportantMessages, markImportantRead, markAllImportantRead, updateImportantNotes, getImportantStats, deleteImportantMessage,
+  addBot, getBot, getAllBots, updateBot, deleteBot,
 } from "../WhatsApp/database/business/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,7 +52,23 @@ function auth(req, res, next) {
   }
 }
 
-export default function startDashboard(lenwySocket = null) {
+function adminOnly(req, res, next) {
+  if (req.user.role !== "admin") return res.status(403).json({ error: "Hanya admin yang bisa mengakses" });
+  next();
+}
+
+function getOwnerId(req) {
+  if (req.user.role === "admin") {
+    return req.query.ownerId ? parseInt(req.query.ownerId) : null;
+  }
+  return req.user.id;
+}
+
+function getWriteOwnerId(req) {
+  return req.user.id;
+}
+
+export default function startDashboard() {
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -58,9 +76,14 @@ export default function startDashboard(lenwySocket = null) {
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
   const waSockets = new Map();
+  const pairingCodes = new Map();
 
   app.setWaSocket = (botId, botName, socket) => {
     waSockets.set(botId, { name: botName, socket });
+  };
+
+  app.removeWaSocket = (botId) => {
+    waSockets.delete(botId);
   };
 
   function getSocket(botId) {
@@ -85,7 +108,7 @@ export default function startDashboard(lenwySocket = null) {
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ error: "Username atau password salah" });
     }
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: "7d" });
     res.json({ token, user: { id: user.id, username: user.username, name: user.name, role: user.role } });
   });
 
@@ -106,45 +129,139 @@ export default function startDashboard(lenwySocket = null) {
     res.json({ success: true });
   });
 
+  // ===== CLIENT MANAGEMENT (admin only) =====
+  app.get("/api/clients", auth, adminOnly, (req, res) => {
+    res.json(getAllDashboardUsers());
+  });
+
+  app.post("/api/clients", auth, adminOnly, (req, res) => {
+    const { username, password, name } = req.body;
+    if (!username || !password || !name) return res.status(400).json({ error: "Username, password, dan nama wajib diisi" });
+    if (password.length < 6) return res.status(400).json({ error: "Password minimal 6 karakter" });
+    const existing = getDashboardUser(username);
+    if (existing) return res.status(400).json({ error: "Username sudah dipakai" });
+    const hash = bcrypt.hashSync(password, 10);
+    const user = createDashboardUser(username, hash, name, "client");
+    res.json({ success: true, user });
+  });
+
+  app.put("/api/clients/:id", auth, adminOnly, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (id === 1) return res.status(400).json({ error: "Tidak bisa mengubah akun admin utama" });
+    const user = getDashboardUserById(id);
+    if (!user) return res.status(404).json({ error: "User tidak ditemukan" });
+    if (req.body.password) {
+      if (req.body.password.length < 6) return res.status(400).json({ error: "Password minimal 6 karakter" });
+      updateDashboardPassword(user.username, bcrypt.hashSync(req.body.password, 10));
+    }
+    if (req.body.name) {
+      db.prepare("UPDATE dashboard_users SET name = ? WHERE id = ?").run(req.body.name, id);
+    }
+    res.json({ success: true });
+  });
+
+  app.delete("/api/clients/:id", auth, adminOnly, (req, res) => {
+    const id = parseInt(req.params.id);
+    if (id === 1) return res.status(400).json({ error: "Tidak bisa menghapus akun admin utama" });
+    deleteDashboardUser(id);
+    res.json({ success: true });
+  });
+
   // ===== BOTS =====
   app.get("/api/bots", auth, (req, res) => {
-    const bots = [];
-    for (const [id, { name }] of waSockets) {
-      bots.push({ id, name, connected: true });
+    const ownerId = getOwnerId(req);
+    const dbBots = getAllBots(ownerId);
+    res.json(dbBots.map(b => ({ ...b, connected: waSockets.has(b.id) })));
+  });
+
+  app.post("/api/bots/add", auth, async (req, res) => {
+    const { name, phone } = req.body;
+    if (!name || !phone) return res.status(400).json({ error: "Nama dan nomor telepon wajib diisi" });
+    const cleanPhone = phone.replace(/[^0-9]/g, "");
+    if (cleanPhone.length < 10) return res.status(400).json({ error: "Nomor telepon tidak valid" });
+
+    const ownerId = getWriteOwnerId(req);
+    const botId = `bot_${Date.now()}_${ownerId}`;
+    addBot(botId, ownerId, name, cleanPhone);
+
+    if (!app.connectBot) {
+      return res.status(503).json({ error: "Sistem bot belum siap, coba lagi nanti" });
     }
-    res.json(bots);
+
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => resolve({ code: null }), 30000);
+        app.connectBot({
+          id: botId,
+          name,
+          phone: cleanPhone,
+          owner_id: ownerId,
+          onPairingCode: (code) => {
+            clearTimeout(timeout);
+            resolve({ code });
+          },
+        }).catch(err => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+      });
+      res.json({ success: true, botId, pairingCode: result.code });
+    } catch (e) {
+      deleteBot(botId);
+      res.status(500).json({ error: "Gagal menghubungkan bot: " + e.message });
+    }
+  });
+
+  app.delete("/api/bots/:id", auth, (req, res) => {
+    const bot = getBot(req.params.id);
+    if (!bot) return res.status(404).json({ error: "Bot tidak ditemukan" });
+    if (req.user.role !== "admin" && bot.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa menghapus bot milik orang lain" });
+    }
+    const sock = getSocket(req.params.id);
+    if (sock) {
+      try { sock.logout(); } catch {}
+      waSockets.delete(req.params.id);
+    }
+    deleteBot(req.params.id);
+    const sessionPath = path.resolve(__dirname, "../sessions", req.params.id);
+    if (fs.existsSync(sessionPath)) {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+    }
+    res.json({ success: true });
   });
 
   // ===== DASHBOARD =====
   app.get("/api/dashboard", auth, (req, res) => {
-    res.json(getDashboardStats());
+    res.json(getDashboardStats(getOwnerId(req)));
   });
 
   app.get("/api/analytics", auth, (req, res) => {
     const days = parseInt(req.query.days) || 30;
-    res.json(getAnalytics(days));
+    res.json(getAnalytics(days, getOwnerId(req)));
   });
 
   // ===== BUSINESS PROFILE =====
   app.get("/api/profile", auth, (req, res) => {
-    res.json(getProfile());
+    res.json(getProfile(getWriteOwnerId(req)));
   });
 
   app.put("/api/profile", auth, (req, res) => {
-    updateProfile(req.body);
-    res.json({ success: true, profile: getProfile() });
+    updateProfile(req.body, getWriteOwnerId(req));
+    res.json({ success: true, profile: getProfile(getWriteOwnerId(req)) });
   });
 
   // ===== PRODUCTS =====
   app.get("/api/products", auth, (req, res) => {
+    const ownerId = getOwnerId(req);
     const category = req.query.category || null;
     const search = req.query.search || null;
-    if (search) return res.json(searchProducts(search));
-    res.json(getAllProducts(category));
+    if (search) return res.json(searchProducts(search, ownerId));
+    res.json(getAllProducts(category, ownerId));
   });
 
   app.get("/api/products/categories", auth, (req, res) => {
-    res.json(getProductCategories());
+    res.json(getProductCategories(getOwnerId(req)));
   });
 
   app.get("/api/products/:id", auth, (req, res) => {
@@ -155,6 +272,7 @@ export default function startDashboard(lenwySocket = null) {
 
   app.post("/api/products", auth, (req, res) => {
     try {
+      req.body.owner_id = getWriteOwnerId(req);
       const result = addProduct(req.body);
       res.json({ success: true, id: result.lastInsertRowid });
     } catch (e) {
@@ -179,19 +297,20 @@ export default function startDashboard(lenwySocket = null) {
 
   // ===== CUSTOMERS =====
   app.get("/api/customers", auth, (req, res) => {
+    const ownerId = getOwnerId(req);
     const search = req.query.search || null;
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
-    if (search) return res.json(searchCustomers(search));
-    res.json(getAllCustomers(limit, offset));
+    if (search) return res.json(searchCustomers(search, ownerId));
+    res.json(getAllCustomers(limit, offset, ownerId));
   });
 
   app.get("/api/customers/count", auth, (req, res) => {
-    res.json({ count: getCustomerCount() });
+    res.json({ count: getCustomerCount(getOwnerId(req)) });
   });
 
   app.get("/api/customers/:jid", auth, (req, res) => {
-    const customer = getCustomer(req.params.jid);
+    const customer = getCustomer(req.params.jid, getOwnerId(req));
     if (!customer) return res.status(404).json({ error: "Not found" });
     res.json(customer);
   });
@@ -217,11 +336,11 @@ export default function startDashboard(lenwySocket = null) {
   app.get("/api/orders", auth, (req, res) => {
     const status = req.query.status || null;
     const limit = parseInt(req.query.limit) || 50;
-    res.json(getAllOrders(status, limit));
+    res.json(getAllOrders(status, limit, getOwnerId(req)));
   });
 
   app.get("/api/orders/stats", auth, (req, res) => {
-    res.json(getOrderStats());
+    res.json(getOrderStats(getOwnerId(req)));
   });
 
   app.get("/api/orders/:orderNumber", auth, (req, res) => {
@@ -236,13 +355,7 @@ export default function startDashboard(lenwySocket = null) {
     if (waSocket && req.body.notify) {
       const order = getOrder(req.params.orderNumber);
       if (order) {
-        const statusMap = {
-          confirmed: "dikonfirmasi",
-          processing: "sedang diproses",
-          shipped: "sudah dikirim",
-          delivered: "sudah diterima",
-          cancelled: "dibatalkan",
-        };
+        const statusMap = { confirmed: "dikonfirmasi", processing: "sedang diproses", shipped: "sudah dikirim", delivered: "sudah diterima", cancelled: "dibatalkan" };
         const msg = `📦 *Update Pesanan*\n\nNo. Order: ${order.order_number}\nStatus: *${statusMap[req.body.status] || req.body.status}*${req.body.tracking ? `\nNo. Resi: ${req.body.tracking}` : ""}`;
         waSocket.sendMessage(order.customer_jid, { text: msg }).catch(() => {});
       }
@@ -267,11 +380,11 @@ export default function startDashboard(lenwySocket = null) {
   // ===== TICKETS =====
   app.get("/api/tickets", auth, (req, res) => {
     const status = req.query.status || null;
-    res.json(getAllTickets(status));
+    res.json(getAllTickets(status, 50, getOwnerId(req)));
   });
 
   app.get("/api/tickets/stats", auth, (req, res) => {
-    res.json(getTicketStats());
+    res.json(getTicketStats(getOwnerId(req)));
   });
 
   app.get("/api/tickets/:ticketNumber", auth, (req, res) => {
@@ -297,11 +410,11 @@ export default function startDashboard(lenwySocket = null) {
 
   // ===== FAQ =====
   app.get("/api/faq", auth, (req, res) => {
-    res.json(getAllFaq());
+    res.json(getAllFaq(getOwnerId(req)));
   });
 
   app.post("/api/faq", auth, (req, res) => {
-    addFaq(req.body.question, req.body.answer, req.body.keywords || [], req.body.category || "Umum");
+    addFaq(req.body.question, req.body.answer, req.body.keywords || [], req.body.category || "Umum", getWriteOwnerId(req));
     res.json({ success: true });
   });
 
@@ -312,12 +425,12 @@ export default function startDashboard(lenwySocket = null) {
 
   // ===== TEMPLATES =====
   app.get("/api/templates", auth, (req, res) => {
-    res.json(getAllTemplates());
+    res.json(getAllTemplates(getOwnerId(req)));
   });
 
   app.post("/api/templates", auth, (req, res) => {
     try {
-      addTemplate(req.body.name, req.body.content, req.body.category || "Umum");
+      addTemplate(req.body.name, req.body.content, req.body.category || "Umum", [], getWriteOwnerId(req));
       res.json({ success: true });
     } catch (e) {
       res.status(400).json({ error: e.message });
@@ -325,51 +438,49 @@ export default function startDashboard(lenwySocket = null) {
   });
 
   app.delete("/api/templates/:name", auth, (req, res) => {
-    deleteTemplate(req.params.name);
+    deleteTemplate(req.params.name, getOwnerId(req));
     res.json({ success: true });
   });
 
   // ===== AGENTS =====
   app.get("/api/agents", auth, (req, res) => {
-    res.json(getAllAgents());
+    res.json(getAllAgents(getOwnerId(req)));
   });
 
   app.post("/api/agents", auth, (req, res) => {
-    const agent = addAgent(req.body.jid, req.body.name, req.body.role || "agent");
+    const agent = addAgent(req.body.jid, req.body.name, req.body.role || "agent", getWriteOwnerId(req));
     res.json(agent);
   });
 
   app.put("/api/agents/:jid/status", auth, (req, res) => {
-    updateAgentStatus(req.params.jid, req.body.is_online);
+    updateAgentStatus(req.params.jid, req.body.is_online, getOwnerId(req));
     res.json({ success: true });
   });
 
   // ===== BROADCASTS =====
   app.get("/api/broadcasts", auth, (req, res) => {
-    res.json(getAllBroadcasts());
+    res.json(getAllBroadcasts(getOwnerId(req)));
   });
 
   app.post("/api/broadcasts", auth, async (req, res) => {
-    const bc = createBroadcast(req.body.title, req.body.message, req.body.target_tags || []);
+    const ownerId = getWriteOwnerId(req);
+    const bc = createBroadcast(req.body.title, req.body.message, req.body.target_tags || [], ownerId);
     const waSocket = getSocket(req.body.botId);
     if (req.body.send_now && waSocket) {
       const targetTags = req.body.target_tags || [];
       let customers;
       if (targetTags.length > 0) {
-        customers = getAllCustomers(1000).filter(c => {
+        customers = getAllCustomers(1000, 0, ownerId).filter(c => {
           const tags = JSON.parse(c.tags || "[]");
           return targetTags.some(t => tags.includes(t));
         });
       } else {
-        customers = getAllCustomers(1000).filter(c => !c.is_blocked);
+        customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
       }
-
       let sent = 0;
       for (const customer of customers) {
         try {
-          await waSocket.sendMessage(customer.jid, {
-            text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}`,
-          });
+          await waSocket.sendMessage(customer.jid, { text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` });
           sent++;
           await new Promise(r => setTimeout(r, 1000));
         } catch { /* skip */ }
@@ -394,14 +505,15 @@ export default function startDashboard(lenwySocket = null) {
 
   // ===== IMPORTANT MESSAGES =====
   app.get("/api/important", auth, (req, res) => {
+    const ownerId = getOwnerId(req);
     const botId = req.query.botId || null;
     const isRead = req.query.unread === "1" ? 0 : null;
     const limit = parseInt(req.query.limit) || 100;
-    res.json(getAllImportantMessages(botId, isRead, limit));
+    res.json(getAllImportantMessages(botId, isRead, limit, ownerId));
   });
 
   app.get("/api/important/stats", auth, (req, res) => {
-    res.json(getImportantStats());
+    res.json(getImportantStats(getOwnerId(req)));
   });
 
   app.put("/api/important/:id/read", auth, (req, res) => {
@@ -410,7 +522,7 @@ export default function startDashboard(lenwySocket = null) {
   });
 
   app.put("/api/important/read-all", auth, (req, res) => {
-    markAllImportantRead(req.body?.botId || null);
+    markAllImportantRead(req.body?.botId || null, getOwnerId(req));
     res.json({ success: true });
   });
 

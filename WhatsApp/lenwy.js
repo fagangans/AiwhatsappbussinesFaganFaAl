@@ -177,7 +177,7 @@ watchPlugins();
 
 // Export Handler
 export default async (lenwy, m, meta) => {
-  const { body, mediaType, sender: originalSender, pushname, botId, dashboardApp } = meta;
+  const { body, mediaType, sender: originalSender, pushname, botId, dashboardApp, ownerId } = meta;
   const msg = m.messages[0];
   if (!msg.message) return;
 
@@ -211,7 +211,7 @@ export default async (lenwy, m, meta) => {
   setTimeout(() => processedMessages.delete(msg.key.id), 30000);
 
   // Business Auto-Reply & Customer Tracking
-  const isBlocked = handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body, botId || "", dashboardApp);
+  const isBlocked = handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body, botId || "", dashboardApp, ownerId);
   if (isBlocked) return;
 
   const pplu = fs.readFileSync(globalThis.MenuImage);
@@ -343,10 +343,10 @@ export default async (lenwy, m, meta) => {
   }
 
   // Welcome Message for New Customers
-  await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len);
+  await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
 
   // Away Message (Outside Business Hours)
-  await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len);
+  await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
 
   let usedPrefix = null;
   for (const pre of globalThis.prefix) {

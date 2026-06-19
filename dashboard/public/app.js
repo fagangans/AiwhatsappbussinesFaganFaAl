@@ -3,6 +3,8 @@ let token = localStorage.getItem("token");
 let currentPage = "dashboard";
 let selectedBotId = localStorage.getItem("selectedBotId") || "";
 let connectedBots = [];
+let userRole = localStorage.getItem("userRole") || "";
+let userId = localStorage.getItem("userId") || "";
 
 async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, {
@@ -31,14 +33,15 @@ async function loadBots() {
     const sel = document.getElementById("botSelector");
     if (!sel) return;
     sel.innerHTML = connectedBots.length === 0
-      ? '<option value="">Tidak ada bot terhubung</option>'
-      : connectedBots.map(b => `<option value="${b.id}" ${b.id === selectedBotId ? "selected" : ""}>${b.name} (Online)</option>`).join("");
+      ? '<option value="">Tidak ada bot</option>'
+      : connectedBots.map(b => `<option value="${b.id}" ${b.id === selectedBotId ? "selected" : ""}>${b.name} (${b.connected ? "Online" : "Offline"})</option>`).join("");
     if (connectedBots.length > 0 && !connectedBots.find(b => b.id === selectedBotId)) {
       selectedBotId = connectedBots[0].id;
       localStorage.setItem("selectedBotId", selectedBotId);
     }
     const badge = document.getElementById("botCount");
-    if (badge) badge.textContent = `${connectedBots.length} bot online`;
+    const onlineCount = connectedBots.filter(b => b.connected).length;
+    if (badge) badge.textContent = `${onlineCount}/${connectedBots.length} bot online`;
   } catch { /* not logged in yet */ }
 }
 
@@ -93,7 +96,12 @@ async function login() {
     }
     token = data.token;
     localStorage.setItem("token", token);
+    userRole = data.user.role || "client";
+    userId = data.user.id || "";
+    localStorage.setItem("userRole", userRole);
+    localStorage.setItem("userId", userId);
     document.getElementById("userName").textContent = data.user.name;
+    applyRole();
     showDashboard();
   } catch (e) {
     document.getElementById("loginError").textContent = "Koneksi gagal";
@@ -103,9 +111,22 @@ async function login() {
 
 function logout() {
   token = null;
+  userRole = "";
+  userId = "";
   localStorage.removeItem("token");
+  localStorage.removeItem("userRole");
+  localStorage.removeItem("userId");
+  document.body.classList.remove("role-admin");
   document.getElementById("loginPage").classList.remove("hidden");
   document.getElementById("mainApp").classList.add("hidden");
+}
+
+function applyRole() {
+  if (userRole === "admin") {
+    document.body.classList.add("role-admin");
+  } else {
+    document.body.classList.remove("role-admin");
+  }
 }
 
 function showDashboard() {
@@ -141,7 +162,8 @@ async function showPage(page) {
   const titles = {
     dashboard: "Dashboard", products: "Produk", orders: "Order", customers: "Customer",
     tickets: "Tiket Support", faq: "FAQ", templates: "Template", broadcast: "Broadcast",
-    agents: "Agents", important: "Pesan Penting", analytics: "Analytics", settings: "Pengaturan Bisnis",
+    agents: "Agents", botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
+    clients: "Kelola Client", settings: "Pengaturan Bisnis",
   };
   document.getElementById("pageTitle").textContent = titles[page] || page;
   const content = document.getElementById("pageContent");
@@ -157,8 +179,10 @@ async function showPage(page) {
       case "templates": await renderTemplates(content); break;
       case "broadcast": await renderBroadcast(content); break;
       case "agents": await renderAgents(content); break;
+      case "botmanager": await renderBotManager(content); break;
       case "important": await renderImportant(content); break;
       case "analytics": await renderAnalytics(content); break;
+      case "clients": if (userRole === "admin") { await renderClients(content); } else { content.innerHTML = '<div class="text-red-500">Akses ditolak</div>'; } break;
       case "settings": await renderSettings(content); break;
     }
   } catch (e) { content.innerHTML = `<div class="text-red-500">Error: ${e.message}</div>`; }
@@ -860,11 +884,222 @@ async function saveMessages() {
   toast("Pesan otomatis disimpan");
 }
 
+// ===== BOT MANAGER =====
+async function renderBotManager(el) {
+  const bots = await api("/api/bots");
+  el.innerHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <p class="text-sm text-gray-500">Total: ${bots.length} bot terdaftar</p>
+      <button onclick="showAddBot()" class="btn btn-primary"><i class="fas fa-plus mr-1"></i>Tambah Bot</button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      ${bots.map(b => `
+        <div class="card p-5">
+          <div class="flex items-center gap-3 mb-3">
+            <div class="w-10 h-10 rounded-full ${b.connected ? "bg-green-100" : "bg-gray-100"} flex items-center justify-center">
+              <i class="fas fa-robot ${b.connected ? "text-green-500" : "text-gray-400"}"></i>
+            </div>
+            <div>
+              <h4 class="font-bold">${b.name}</h4>
+              <span class="text-xs ${b.connected ? "text-green-500" : "text-gray-400"}">${b.connected ? "🟢 Online" : "🔴 Offline"}</span>
+            </div>
+          </div>
+          <div class="text-sm text-gray-600 space-y-1">
+            <p>📱 ${b.phone || "-"}</p>
+            <p>ID: <span class="font-mono text-xs">${b.id}</span></p>
+            <p>Dibuat: ${formatDate(b.created_at)}</p>
+          </div>
+          <div class="mt-3">
+            <button onclick="deleteBot('${b.id}','${b.name}')" class="btn btn-danger text-xs w-full"><i class="fas fa-trash mr-1"></i>Hapus Bot</button>
+          </div>
+        </div>`).join("")}
+      ${bots.length === 0 ? '<div class="text-center py-8 text-gray-400 col-span-3">Belum ada bot. Klik "Tambah Bot" untuk memulai.</div>' : ""}
+    </div>`;
+}
+
+function showAddBot() {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-robot mr-2 text-green-500"></i>Tambah Bot WhatsApp</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm font-medium mb-1">Nama Bot *</label><input id="botName" placeholder="Bot Toko Saya"></div>
+      <div><label class="block text-sm font-medium mb-1">Nomor WhatsApp * (awali 62)</label><input id="botPhone" placeholder="628123456789"></div>
+      <p class="text-xs text-gray-400">Masukkan nomor WhatsApp yang ingin dijadikan bot. Setelah klik Mulai, pairing code akan muncul. Masukkan code tersebut di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat.</p>
+      <div id="pairingResult" class="hidden">
+        <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+          <p class="text-sm text-green-800 mb-2">Pairing Code:</p>
+          <p class="text-3xl font-bold text-green-700 tracking-widest" id="pairingCode"></p>
+          <p class="text-xs text-green-600 mt-2">Masukkan code ini di WhatsApp kamu</p>
+        </div>
+      </div>
+      <div id="pairingError" class="hidden">
+        <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+          <p class="text-sm text-red-700" id="pairingErrorMsg"></p>
+        </div>
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="btn btn-outline">Tutup</button>
+        <button onclick="startPairing()" id="btnStartPairing" class="btn btn-primary"><i class="fas fa-link mr-1"></i>Mulai Pairing</button>
+      </div>
+    </div>`);
+}
+
+async function startPairing() {
+  const name = document.getElementById("botName").value.trim();
+  const phone = document.getElementById("botPhone").value.replace(/[^0-9]/g, "");
+  if (!name || !phone) return toast("Nama dan nomor wajib diisi", "error");
+  if (!phone.startsWith("62")) return toast("Nomor harus diawali 62", "error");
+
+  const btn = document.getElementById("btnStartPairing");
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menunggu...';
+  document.getElementById("pairingResult").classList.add("hidden");
+  document.getElementById("pairingError").classList.add("hidden");
+
+  try {
+    const res = await api("/api/bots/add", { method: "POST", body: { name, phone } });
+    if (res.error) {
+      document.getElementById("pairingError").classList.remove("hidden");
+      document.getElementById("pairingErrorMsg").textContent = res.error;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-link mr-1"></i>Mulai Pairing';
+      return;
+    }
+    document.getElementById("pairingResult").classList.remove("hidden");
+    document.getElementById("pairingCode").textContent = res.pairingCode;
+    btn.innerHTML = '<i class="fas fa-check mr-1"></i>Code Diterima';
+    toast("Pairing code berhasil dibuat! Masukkan di WhatsApp.", "success");
+    loadBots();
+  } catch (e) {
+    document.getElementById("pairingError").classList.remove("hidden");
+    document.getElementById("pairingErrorMsg").textContent = e.message || "Gagal memulai pairing";
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-link mr-1"></i>Mulai Pairing';
+  }
+}
+
+async function deleteBot(id, name) {
+  if (!confirm(`Hapus bot "${name}"? Bot akan di-logout dan dihapus.`)) return;
+  try {
+    await api(`/api/bots/${id}`, { method: "DELETE" });
+    toast("Bot dihapus");
+    loadBots();
+    showPage("botmanager");
+  } catch (e) { toast("Gagal menghapus: " + e.message, "error"); }
+}
+
+// ===== CLIENT MANAGEMENT (ADMIN ONLY) =====
+async function renderClients(el) {
+  const clients = await api("/api/clients");
+  el.innerHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <p class="text-sm text-gray-500">Total: ${clients.length} akun client</p>
+      <button onclick="showAddClient()" class="btn btn-primary"><i class="fas fa-plus mr-1"></i>Tambah Client</button>
+    </div>
+    <div class="card overflow-x-auto">
+      <table>
+        <thead><tr><th>ID</th><th>Username</th><th>Nama</th><th>Role</th><th>Dibuat</th><th>Aksi</th></tr></thead>
+        <tbody>${clients.map(c => `
+          <tr>
+            <td class="font-mono text-xs">${c.id}</td>
+            <td class="font-medium">${c.username}</td>
+            <td>${c.name}</td>
+            <td><span class="badge ${c.role === "admin" ? "badge-red" : "badge-blue"}">${c.role}</span></td>
+            <td class="text-xs text-gray-500">${formatDate(c.created_at)}</td>
+            <td class="space-x-1">
+              ${c.role !== "admin" ? `
+                <button onclick="editClient(${c.id},'${c.username}','${c.name}')" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-edit"></i></button>
+                <button onclick="deleteClient(${c.id},'${c.username}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button>
+              ` : '<span class="text-xs text-gray-400">Master</span>'}
+            </td>
+          </tr>`).join("")}</tbody>
+      </table>
+      ${clients.length === 0 ? '<p class="text-center py-8 text-gray-400">Belum ada client</p>' : ""}
+    </div>`;
+}
+
+function showAddClient() {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-user-plus mr-2 text-purple-500"></i>Tambah Client</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm font-medium mb-1">Username *</label><input id="clientUser" placeholder="tokobaru"></div>
+      <div><label class="block text-sm font-medium mb-1">Nama *</label><input id="clientName" placeholder="Toko Baru"></div>
+      <div><label class="block text-sm font-medium mb-1">Password *</label><input id="clientPass" type="password" placeholder="Min 6 karakter"></div>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="btn btn-outline">Batal</button>
+        <button onclick="saveClient()" class="btn btn-primary">Simpan</button>
+      </div>
+    </div>`);
+}
+
+async function saveClient() {
+  const username = document.getElementById("clientUser").value.trim();
+  const name = document.getElementById("clientName").value.trim();
+  const password = document.getElementById("clientPass").value;
+  if (!username || !name || !password) return toast("Semua kolom wajib diisi", "error");
+  if (password.length < 6) return toast("Password minimal 6 karakter", "error");
+  try {
+    const res = await api("/api/clients", { method: "POST", body: { username, name, password } });
+    if (res.error) return toast(res.error, "error");
+    closeModal();
+    toast("Client berhasil ditambahkan");
+    showPage("clients");
+  } catch (e) { toast(e.message, "error"); }
+}
+
+function editClient(id, username, name) {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-edit mr-2 text-blue-500"></i>Edit Client</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm font-medium mb-1">Username</label><input id="clientUser" value="${username}" disabled class="bg-gray-100"></div>
+      <div><label class="block text-sm font-medium mb-1">Nama *</label><input id="clientName" value="${name}"></div>
+      <div><label class="block text-sm font-medium mb-1">Password Baru (kosongkan jika tidak ubah)</label><input id="clientPass" type="password"></div>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="btn btn-outline">Batal</button>
+        <button onclick="updateClient(${id})" class="btn btn-primary">Simpan</button>
+      </div>
+    </div>`);
+}
+
+async function updateClient(id) {
+  const name = document.getElementById("clientName").value.trim();
+  const password = document.getElementById("clientPass").value;
+  if (!name) return toast("Nama wajib diisi", "error");
+  const body = { name };
+  if (password) {
+    if (password.length < 6) return toast("Password minimal 6 karakter", "error");
+    body.password = password;
+  }
+  try {
+    const res = await api(`/api/clients/${id}`, { method: "PUT", body });
+    if (res.error) return toast(res.error, "error");
+    closeModal();
+    toast("Client diperbarui");
+    showPage("clients");
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function deleteClient(id, username) {
+  if (!confirm(`Hapus client "${username}"? Semua data client ini akan terhapus.`)) return;
+  try {
+    await api(`/api/clients/${id}`, { method: "DELETE" });
+    toast("Client dihapus");
+    showPage("clients");
+  } catch (e) { toast(e.message, "error"); }
+}
+
 // ===== INIT =====
 document.getElementById("loginPassword").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
 
 if (token) {
-  api("/api/me").then(u => { document.getElementById("userName").textContent = u.name || u.username; showDashboard(); }).catch(() => { token = null; localStorage.removeItem("token"); });
+  api("/api/me").then(u => {
+    userRole = u.role || "client";
+    userId = u.id || "";
+    localStorage.setItem("userRole", userRole);
+    localStorage.setItem("userId", userId);
+    document.getElementById("userName").textContent = u.name || u.username;
+    applyRole();
+    showDashboard();
+  }).catch(() => { token = null; localStorage.removeItem("token"); localStorage.removeItem("userRole"); localStorage.removeItem("userId"); });
 } else {
   document.getElementById("loginPage").classList.remove("hidden");
 }

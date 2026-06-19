@@ -89,13 +89,24 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   // Handle Pairing
   if (usePairingCode && !lenwy.authState.creds.registered) {
     try {
-      const phoneNumber = await question(
-        `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
-      );
+      let phoneNumber;
+      if (botConfig.phone) {
+        phoneNumber = botConfig.phone;
+      } else {
+        phoneNumber = await question(
+          `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
+        );
+      }
       const code = await lenwy.requestPairingCode(phoneNumber.trim());
       console.log(`🎁 ${tag} Pairing Code : ${code}`);
+      if (typeof botConfig.onPairingCode === "function") {
+        botConfig.onPairingCode(code);
+      }
     } catch (err) {
       console.error(`${tag} Failed to get pairing code:`, err);
+      if (typeof botConfig.onPairingError === "function") {
+        botConfig.onPairingError(err);
+      }
     }
   }
 
@@ -201,7 +212,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
     // Import Handler
     const { default: handler } = await import("./lenwy.js");
-    handler(lenwy, m, { body, mediaType, sender, pushname, botId, dashboardApp });
+    handler(lenwy, m, { body, mediaType, sender, pushname, botId, dashboardApp, ownerId: botConfig.owner_id || 1 });
   });
 }
 
