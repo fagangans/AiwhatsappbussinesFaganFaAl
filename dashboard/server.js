@@ -56,9 +56,20 @@ export default function startDashboard(lenwySocket = null) {
   app.use(express.static(path.join(__dirname, "public")));
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-  let waSocket = lenwySocket;
+  const waSockets = new Map();
 
-  app.setWaSocket = (socket) => { waSocket = socket; };
+  app.setWaSocket = (botId, botName, socket) => {
+    waSockets.set(botId, { name: botName, socket });
+  };
+
+  function getSocket(botId) {
+    if (!botId) {
+      const first = waSockets.values().next().value;
+      return first ? first.socket : null;
+    }
+    const entry = waSockets.get(botId);
+    return entry ? entry.socket : null;
+  }
 
   if (!dashboardUserExists()) {
     const hash = bcrypt.hashSync("admin123", 10);
@@ -92,6 +103,15 @@ export default function startDashboard(lenwySocket = null) {
     }
     updateDashboardPassword(user.username, bcrypt.hashSync(newPassword, 10));
     res.json({ success: true });
+  });
+
+  // ===== BOTS =====
+  app.get("/api/bots", auth, (req, res) => {
+    const bots = [];
+    for (const [id, { name }] of waSockets) {
+      bots.push({ id, name, connected: true });
+    }
+    res.json(bots);
   });
 
   // ===== DASHBOARD =====
@@ -211,6 +231,7 @@ export default function startDashboard(lenwySocket = null) {
 
   app.put("/api/orders/:orderNumber/status", auth, (req, res) => {
     updateOrderStatus(req.params.orderNumber, req.body.status);
+    const waSocket = getSocket(req.body.botId);
     if (waSocket && req.body.notify) {
       const order = getOrder(req.params.orderNumber);
       if (order) {
@@ -233,6 +254,7 @@ export default function startDashboard(lenwySocket = null) {
     if (!order) return res.status(404).json({ error: "Not found" });
     confirmPayment(order.id);
     updateOrderStatus(req.params.orderNumber, "confirmed");
+    const waSocket = getSocket(req.body?.botId);
     if (waSocket) {
       waSocket.sendMessage(order.customer_jid, {
         text: `✅ *Pembayaran Dikonfirmasi!*\n\nNo. Order: ${order.order_number}\nPembayaran Anda telah dikonfirmasi. Pesanan sedang diproses.`,
@@ -259,6 +281,7 @@ export default function startDashboard(lenwySocket = null) {
 
   app.put("/api/tickets/:ticketNumber/status", auth, (req, res) => {
     updateTicketStatus(req.params.ticketNumber, req.body.status, req.body.resolution || "");
+    const waSocket = getSocket(req.body.botId);
     if (waSocket && req.body.notify) {
       const ticket = getTicket(req.params.ticketNumber);
       if (ticket) {
@@ -327,6 +350,7 @@ export default function startDashboard(lenwySocket = null) {
 
   app.post("/api/broadcasts", auth, async (req, res) => {
     const bc = createBroadcast(req.body.title, req.body.message, req.body.target_tags || []);
+    const waSocket = getSocket(req.body.botId);
     if (req.body.send_now && waSocket) {
       const targetTags = req.body.target_tags || [];
       let customers;
@@ -356,6 +380,7 @@ export default function startDashboard(lenwySocket = null) {
 
   // ===== SEND MESSAGE =====
   app.post("/api/send-message", auth, async (req, res) => {
+    const waSocket = getSocket(req.body.botId);
     if (!waSocket) return res.status(503).json({ error: "WhatsApp not connected" });
     const { jid, message } = req.body;
     try {

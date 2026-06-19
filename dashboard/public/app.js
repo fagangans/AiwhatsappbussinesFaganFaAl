@@ -1,6 +1,8 @@
 const API = "";
 let token = localStorage.getItem("token");
 let currentPage = "dashboard";
+let selectedBotId = localStorage.getItem("selectedBotId") || "";
+let connectedBots = [];
 
 async function api(path, options = {}) {
   const res = await fetch(`${API}${path}`, {
@@ -22,6 +24,28 @@ function toast(msg, type = "success") {
 
 function formatCurrency(n) { return `Rp${Number(n || 0).toLocaleString("id-ID")}`; }
 function formatDate(d) { return d ? new Date(d).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"; }
+
+async function loadBots() {
+  try {
+    connectedBots = await api("/api/bots");
+    const sel = document.getElementById("botSelector");
+    if (!sel) return;
+    sel.innerHTML = connectedBots.length === 0
+      ? '<option value="">Tidak ada bot terhubung</option>'
+      : connectedBots.map(b => `<option value="${b.id}" ${b.id === selectedBotId ? "selected" : ""}>${b.name} (Online)</option>`).join("");
+    if (connectedBots.length > 0 && !connectedBots.find(b => b.id === selectedBotId)) {
+      selectedBotId = connectedBots[0].id;
+      localStorage.setItem("selectedBotId", selectedBotId);
+    }
+    const badge = document.getElementById("botCount");
+    if (badge) badge.textContent = `${connectedBots.length} bot online`;
+  } catch { /* not logged in yet */ }
+}
+
+function onBotSelect(val) {
+  selectedBotId = val;
+  localStorage.setItem("selectedBotId", val);
+}
 
 function showModal(html) {
   document.getElementById("modalContent").innerHTML = html;
@@ -88,6 +112,8 @@ function showDashboard() {
   document.getElementById("loginPage").classList.add("hidden");
   document.getElementById("mainApp").classList.remove("hidden");
   document.getElementById("currentDate").textContent = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  loadBots();
+  setInterval(loadBots, 15000);
   showPage("dashboard");
 }
 
@@ -355,9 +381,9 @@ function changeOrderStatus(num, current) {
     <div class="flex gap-2 justify-end"><button onclick="closeModal()" class="btn btn-outline">Batal</button><button onclick="doUpdateOrder('${num}')" class="btn btn-primary">Update</button></div>`);
 }
 
-async function doUpdateOrder(num) { const status = document.getElementById("newOrderStatus").value; const notify = document.getElementById("notifyCustomer").checked; await api(`/api/orders/${num}/status`, { method: "PUT", body: { status, notify } }); closeModal(); toast("Status order diperbarui"); showPage("orders"); }
+async function doUpdateOrder(num) { const status = document.getElementById("newOrderStatus").value; const notify = document.getElementById("notifyCustomer").checked; await api(`/api/orders/${num}/status`, { method: "PUT", body: { status, notify, botId: selectedBotId } }); closeModal(); toast("Status order diperbarui"); showPage("orders"); }
 
-async function confirmPay(num) { if (!confirm(`Konfirmasi pembayaran order ${num}?`)) return; await api(`/api/orders/${num}/confirm-payment`, { method: "PUT" }); toast("Pembayaran dikonfirmasi"); showPage("orders"); }
+async function confirmPay(num) { if (!confirm(`Konfirmasi pembayaran order ${num}?`)) return; await api(`/api/orders/${num}/confirm-payment`, { method: "PUT", body: { botId: selectedBotId } }); toast("Pembayaran dikonfirmasi"); showPage("orders"); }
 
 // ===== CUSTOMERS =====
 async function renderCustomers(el) {
@@ -419,7 +445,7 @@ function sendMsgToCustomer(jid) {
     <div class="flex gap-2 justify-end mt-4"><button onclick="closeModal()" class="btn btn-outline">Batal</button><button onclick="doSendMsg('${jid}')" class="btn btn-success">Kirim</button></div>`);
 }
 
-async function doSendMsg(jid) { const msg = document.getElementById("msgContent").value; if (!msg) return; try { await api("/api/send-message", { method: "POST", body: { jid, message: msg } }); closeModal(); toast("Pesan terkirim"); } catch(e) { toast("Gagal kirim: "+e.message, "error"); } }
+async function doSendMsg(jid) { const msg = document.getElementById("msgContent").value; if (!msg) return; try { await api("/api/send-message", { method: "POST", body: { jid, message: msg, botId: selectedBotId } }); closeModal(); toast("Pesan terkirim"); } catch(e) { toast("Gagal kirim: "+e.message, "error"); } }
 
 // ===== TICKETS =====
 async function renderTickets(el) {
@@ -461,7 +487,7 @@ function updateTicket(num, current) {
     <div class="flex gap-2 justify-end"><button onclick="closeModal()" class="btn btn-outline">Batal</button><button onclick="doUpdateTicket('${num}')" class="btn btn-primary">Update</button></div>`);
 }
 
-async function doUpdateTicket(num) { await api(`/api/tickets/${num}/status`, { method: "PUT", body: { status: document.getElementById("newTicketStatus").value, resolution: document.getElementById("ticketResolution").value, notify: document.getElementById("notifyTicket").checked } }); closeModal(); toast("Tiket diperbarui"); showPage("tickets"); }
+async function doUpdateTicket(num) { await api(`/api/tickets/${num}/status`, { method: "PUT", body: { status: document.getElementById("newTicketStatus").value, resolution: document.getElementById("ticketResolution").value, notify: document.getElementById("notifyTicket").checked, botId: selectedBotId } }); closeModal(); toast("Tiket diperbarui"); showPage("tickets"); }
 
 // ===== FAQ =====
 async function renderFaq(el) {
@@ -559,7 +585,7 @@ function showNewBroadcast() {
     </div>`);
 }
 
-async function doBroadcast() { const t = document.getElementById("bcTitle").value, m = document.getElementById("bcMsg").value; if (!t||!m) return toast("Judul dan pesan wajib","error"); const tags = document.getElementById("bcTags").value.split(",").map(s=>s.trim()).filter(Boolean); await api("/api/broadcasts", { method: "POST", body: { title: t, message: m, target_tags: tags, send_now: document.getElementById("bcSendNow").checked } }); closeModal(); toast("Broadcast dikirim"); showPage("broadcast"); }
+async function doBroadcast() { const t = document.getElementById("bcTitle").value, m = document.getElementById("bcMsg").value; if (!t||!m) return toast("Judul dan pesan wajib","error"); const tags = document.getElementById("bcTags").value.split(",").map(s=>s.trim()).filter(Boolean); await api("/api/broadcasts", { method: "POST", body: { title: t, message: m, target_tags: tags, send_now: document.getElementById("bcSendNow").checked, botId: selectedBotId } }); closeModal(); toast("Broadcast dikirim"); showPage("broadcast"); }
 
 // ===== AGENTS =====
 async function renderAgents(el) {

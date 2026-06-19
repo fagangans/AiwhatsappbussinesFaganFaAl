@@ -139,6 +139,13 @@
             <h1 class="text-xl font-bold text-gray-800" id="pageTitle">Dashboard</h1>
           </div>
           <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+              <i class="fab fa-whatsapp text-green-500"></i>
+              <select id="botSelector" onchange="onBotSelect(this.value)" class="text-sm border border-gray-300 rounded-lg px-2 py-1 w-auto min-w-[140px]">
+                <option value="">Loading...</option>
+              </select>
+              <span id="botCount" class="text-xs text-gray-400"></span>
+            </div>
             <span class="text-sm text-gray-500" id="currentDate"></span>
             <span class="text-sm font-medium text-gray-700" id="userName">Admin</span>
           </div>

@@ -1,4 +1,4 @@
-/* 
+/*
   Made By Lenwy
   Base : Lenwy
   WhatsApp : wa.me/6283829814737
@@ -26,13 +26,9 @@ import chalk from "chalk";
 import readline from "readline";
 import path from "path";
 import { fileURLToPath } from "url";
-import os from "os";
 import fs from "fs";
 
 import attachSticker from "./lib/sticker.js";
-
-// Simpan ID Interval Polling
-let pollingIntervalId = null;
 
 // Path ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -57,16 +53,23 @@ async function question(prompt) {
   });
 }
 
-let dashboardApp = null;
+async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
+  const botId = botConfig.id;
+  const botName = botConfig.name;
+  const sessionPath = path.resolve(__dirname, "../sessions", botId);
 
-async function connectToWhatsApp(dashboard = null) {
-  if (dashboard) dashboardApp = dashboard;
-  const { state, saveCreds } = await useMultiFileAuthState(
-    path.resolve(__dirname, "../LenwySesi"),
-  );
+  if (!fs.existsSync(sessionPath)) {
+    fs.mkdirSync(sessionPath, { recursive: true });
+  }
+
+  const tag = `[${botName}]`;
+
+  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
   const { version, isLatest } = await fetchLatestBaileysVersion();
-  console.log(`Lenwy Using WA v${version.join(".")}, isLatest: ${isLatest}`);
+  if (!isReconnect) {
+    console.log(`${tag} Using WA v${version.join(".")}, isLatest: ${isLatest}`);
+  }
 
   const lenwy = makeWASocket({
     logger: pino({ level: "silent" }),
@@ -77,28 +80,22 @@ async function connectToWhatsApp(dashboard = null) {
     syncFullHistory: true,
     generateHighQualityLinkPreview: true,
     getMessage: async (key) => {
-      if (store) {
-        const msg = await store.loadMessage(key.remoteJid, key.id);
-        return msg?.message || undefined;
-      }
       return {};
     },
   });
 
   attachSticker(lenwy);
 
-  // startPolling(lenwy)
-
   // Handle Pairing
   if (usePairingCode && !lenwy.authState.creds.registered) {
     try {
       const phoneNumber = await question(
-        "☘️ Masukan Nomor Yang Diawali Dengan 62 :\n",
+        `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
       );
       const code = await lenwy.requestPairingCode(phoneNumber.trim());
-      console.log(`🎁 Pairing Code : ${code}`);
+      console.log(`🎁 ${tag} Pairing Code : ${code}`);
     } catch (err) {
-      console.error("Failed to get pairing code:", err);
+      console.error(`${tag} Failed to get pairing code:`, err);
     }
   }
 
@@ -107,21 +104,13 @@ async function connectToWhatsApp(dashboard = null) {
   lenwy.ev.on("connection.update", (update) => {
     const { connection } = update;
     if (connection === "close") {
-      console.log(chalk.red("❌  Koneksi Terputus, Mencoba Menyambung Ulang"));
-
-      if (pollingIntervalId) {
-        clearInterval(pollingIntervalId);
-        console.log(chalk.yellow("[POLLING] Polling lama dihentikan."));
-      }
-
-      // Sambungkan Ulang
-      connectToWhatsApp(dashboardApp);
+      console.log(chalk.red(`❌  ${tag} Koneksi Terputus, Mencoba Menyambung Ulang`));
+      connectToWhatsApp(dashboardApp, botConfig, true);
     } else if (connection === "open") {
-      console.log(chalk.green("✔  Bot Berhasil Terhubung Ke WhatsApp"));
-      // Connect dashboard to WhatsApp socket
+      console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
       if (dashboardApp && dashboardApp.setWaSocket) {
-        dashboardApp.setWaSocket(lenwy);
-        console.log(chalk.green("✔  Dashboard terhubung ke WhatsApp"));
+        dashboardApp.setWaSocket(botId, botName, lenwy);
+        console.log(chalk.green(`✔  ${tag} Dashboard terhubung`));
       }
     }
   });
@@ -132,7 +121,7 @@ async function connectToWhatsApp(dashboard = null) {
     if (!msg.message) return;
 
     const sender = msg.key.remoteJid;
-    const pushname = msg.pushName || "Lenwy";
+    const pushname = msg.pushName || "User";
 
     // Deteksi Tipe Pesan
     const messageType = getContentType(msg.message);
@@ -203,7 +192,7 @@ async function connectToWhatsApp(dashboard = null) {
 
     console.log(
       chalk.yellow.bold("Credit : Lenwy"),
-      chalk.green.bold("[WhatsApp]"),
+      chalk.green.bold(tag),
       chalk[randomColor](pushname),
       chalk[randomColor](" : "),
       chalk.magenta.bold(`${logTag}`),

@@ -1,4 +1,4 @@
-/*  
+/*
 
   Made By Lenwy
   Base : Lenwy
@@ -22,9 +22,20 @@ const maxWidth = Math.min(terminalWidth, 50);
 
 // Konfigurasi Bot
 const config = {
-  whatsapp: true,
   telegram: false,
   dashboard: true,
+  bots: [
+    { id: "bot1", name: "Bot 1" },
+    { id: "bot2", name: "Bot 2" },
+    { id: "bot3", name: "Bot 3" },
+    { id: "bot4", name: "Bot 4" },
+    { id: "bot5", name: "Bot 5" },
+    { id: "bot6", name: "Bot 6" },
+    { id: "bot7", name: "Bot 7" },
+    { id: "bot8", name: "Bot 8" },
+    { id: "bot9", name: "Bot 9" },
+    { id: "bot10", name: "Bot 10" },
+  ],
 };
 
 // Fungsi utama
@@ -38,13 +49,15 @@ const config = {
       dashboardApp = startDashboard();
     }
 
-    if (config.whatsapp) {
-      console.log(chalk.green.bold("\n🎁  Menjalankan WhatsApp Business CS Bot"));
+    if (config.bots.length > 0) {
+      console.log(chalk.green.bold(`\n🎁  Menjalankan ${config.bots.length} WhatsApp Business CS Bot`));
       const { default: startWhatsApp } = await import("./WhatsApp/index.js");
-      startWhatsApp(dashboardApp);
+      for (const botConfig of config.bots) {
+        await startWhatsApp(dashboardApp, botConfig);
+      }
     } else {
       console.log(
-        chalk.red.bold("\n❌  Bot WhatsApp Dinonaktifkan Di LenwySet.js"),
+        chalk.red.bold("\n❌  Tidak ada bot WhatsApp yang dikonfigurasi"),
       );
     }
 
@@ -73,6 +86,7 @@ const config = {
 ✉️  WhatsApp Business Customer Service Bot
 ✉️  Base : Lenwy SCM
 ✉️  Dashboard: http://localhost:${process.env.DASHBOARD_PORT || 3000}
+🎁  Bots: ${config.bots.length} bot dikonfigurasi
 🎁  Features : CRM, Order, Ticket, Broadcast, FAQ, Analytics
 
 ${chalk.green.bold("🎁  Business Ready!")}\n`),
