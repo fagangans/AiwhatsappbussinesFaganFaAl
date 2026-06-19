@@ -22,6 +22,7 @@ import db, {
   getDashboardStats, getAnalytics,
   getDashboardUser, createDashboardUser, dashboardUserExists, updateDashboardPassword,
   getMessageLogs, getCustomerOrders, getCustomerTickets,
+  getAllImportantMessages, markImportantRead, markAllImportantRead, updateImportantNotes, getImportantStats, deleteImportantMessage,
 } from "../WhatsApp/database/business/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -389,6 +390,38 @@ export default function startDashboard(lenwySocket = null) {
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ===== IMPORTANT MESSAGES =====
+  app.get("/api/important", auth, (req, res) => {
+    const botId = req.query.botId || null;
+    const isRead = req.query.unread === "1" ? 0 : null;
+    const limit = parseInt(req.query.limit) || 100;
+    res.json(getAllImportantMessages(botId, isRead, limit));
+  });
+
+  app.get("/api/important/stats", auth, (req, res) => {
+    res.json(getImportantStats());
+  });
+
+  app.put("/api/important/:id/read", auth, (req, res) => {
+    markImportantRead(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.put("/api/important/read-all", auth, (req, res) => {
+    markAllImportantRead(req.body?.botId || null);
+    res.json({ success: true });
+  });
+
+  app.put("/api/important/:id/notes", auth, (req, res) => {
+    updateImportantNotes(parseInt(req.params.id), req.body.notes || "");
+    res.json({ success: true });
+  });
+
+  app.delete("/api/important/:id", auth, (req, res) => {
+    deleteImportantMessage(parseInt(req.params.id));
+    res.json({ success: true });
   });
 
   // ===== SPA FALLBACK =====

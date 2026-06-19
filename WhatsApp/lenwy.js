@@ -177,7 +177,7 @@ watchPlugins();
 
 // Export Handler
 export default async (lenwy, m, meta) => {
-  const { body, mediaType, sender: originalSender, pushname } = meta;
+  const { body, mediaType, sender: originalSender, pushname, botId, dashboardApp } = meta;
   const msg = m.messages[0];
   if (!msg.message) return;
 
@@ -211,7 +211,7 @@ export default async (lenwy, m, meta) => {
   setTimeout(() => processedMessages.delete(msg.key.id), 30000);
 
   // Business Auto-Reply & Customer Tracking
-  const isBlocked = handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body);
+  const isBlocked = handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body, botId || "", dashboardApp);
   if (isBlocked) return;
 
   const pplu = fs.readFileSync(globalThis.MenuImage);

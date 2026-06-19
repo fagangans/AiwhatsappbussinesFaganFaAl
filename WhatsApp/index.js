@@ -201,7 +201,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
     // Import Handler
     const { default: handler } = await import("./lenwy.js");
-    handler(lenwy, m, { body, mediaType, sender, pushname });
+    handler(lenwy, m, { body, mediaType, sender, pushname, botId, dashboardApp });
   });
 }
 

@@ -1,10 +1,11 @@
 import {
   getProfile, getOrCreateCustomer, searchFaq, logMessage,
-  updateDailyAnalytics,
+  updateDailyAnalytics, addImportantMessage,
 } from "../../database/business/db.js";
 import { isBusinessOpen, getGreeting } from "../../database/business/helpers.js";
+import { analyzeImportantMessage } from "../../database/business/analyzer.js";
 
-export function handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body) {
+export function handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body, botId = "", dashboardApp = null) {
   const profile = getProfile();
   if (!profile.auto_reply_enabled) return false;
 
@@ -12,6 +13,14 @@ export function handleAutoReply(lenwy, replyJid, normalizedSender, pushname, bod
 
   logMessage(customer.id, "in", body, "text");
   updateDailyAnalytics({ messages_in: 1 });
+
+  const analysis = analyzeImportantMessage(body);
+  if (analysis) {
+    const saved = addImportantMessage(botId, customer.id, pushname, normalizedSender, body, analysis.category, analysis.priority);
+    if (dashboardApp && dashboardApp.broadcast) {
+      dashboardApp.broadcast({ type: "important_message", data: saved });
+    }
+  }
 
   if (customer.is_blocked) return true;
 

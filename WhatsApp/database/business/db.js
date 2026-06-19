@@ -214,6 +214,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_analytics_date ON analytics(date);
   CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
   CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+
+  CREATE TABLE IF NOT EXISTS important_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT DEFAULT '',
+    customer_id INTEGER,
+    customer_name TEXT DEFAULT '',
+    customer_jid TEXT DEFAULT '',
+    message TEXT NOT NULL,
+    category TEXT DEFAULT 'umum',
+    priority TEXT DEFAULT 'medium',
+    is_read INTEGER DEFAULT 0,
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_important_bot ON important_messages(bot_id);
+  CREATE INDEX IF NOT EXISTS idx_important_read ON important_messages(is_read);
 `);
 
 const profileExists = db.prepare("SELECT COUNT(*) as c FROM business_profile").get();
@@ -560,4 +578,48 @@ export function dashboardUserExists() {
 
 export function updateDashboardPassword(username, hashedPassword) {
   db.prepare("UPDATE dashboard_users SET password = ? WHERE username = ?").run(hashedPassword, username);
+}
+
+export function addImportantMessage(botId, customerId, customerName, customerJid, message, category, priority) {
+  db.prepare("INSERT INTO important_messages (bot_id, customer_id, customer_name, customer_jid, message, category, priority) VALUES (?, ?, ?, ?, ?, ?, ?)").run(botId, customerId, customerName, customerJid, message, category, priority);
+  return db.prepare("SELECT * FROM important_messages ORDER BY id DESC LIMIT 1").get();
+}
+
+export function getAllImportantMessages(botId = null, isRead = null, limit = 100) {
+  let sql = "SELECT * FROM important_messages WHERE 1=1";
+  const params = [];
+  if (botId) { sql += " AND bot_id = ?"; params.push(botId); }
+  if (isRead !== null) { sql += " AND is_read = ?"; params.push(isRead); }
+  sql += " ORDER BY created_at DESC LIMIT ?";
+  params.push(limit);
+  return db.prepare(sql).all(...params);
+}
+
+export function markImportantRead(id) {
+  db.prepare("UPDATE important_messages SET is_read = 1 WHERE id = ?").run(id);
+}
+
+export function markAllImportantRead(botId = null) {
+  if (botId) {
+    db.prepare("UPDATE important_messages SET is_read = 1 WHERE bot_id = ? AND is_read = 0").run(botId);
+  } else {
+    db.prepare("UPDATE important_messages SET is_read = 1 WHERE is_read = 0").run();
+  }
+}
+
+export function updateImportantNotes(id, notes) {
+  db.prepare("UPDATE important_messages SET notes = ? WHERE id = ?").run(notes, id);
+}
+
+export function getImportantStats() {
+  return db.prepare(`SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread,
+    SUM(CASE WHEN priority = 'urgent' THEN 1 ELSE 0 END) as urgent,
+    SUM(CASE WHEN priority = 'high' THEN 1 ELSE 0 END) as high
+  FROM important_messages`).get();
+}
+
+export function deleteImportantMessage(id) {
+  db.prepare("DELETE FROM important_messages WHERE id = ?").run(id);
 }

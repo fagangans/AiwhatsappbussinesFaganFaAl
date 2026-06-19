@@ -113,7 +113,19 @@ function showDashboard() {
   document.getElementById("mainApp").classList.remove("hidden");
   document.getElementById("currentDate").textContent = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   loadBots();
+  updateImportantBadge();
   setInterval(loadBots, 15000);
+  setInterval(updateImportantBadge, 30000);
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === "important_message") {
+        updateImportantBadge();
+        toast(`Pesan penting baru dari ${data.data.customer_name || "customer"}`, "info");
+      }
+    } catch {}
+  };
   showPage("dashboard");
 }
 
@@ -129,7 +141,7 @@ async function showPage(page) {
   const titles = {
     dashboard: "Dashboard", products: "Produk", orders: "Order", customers: "Customer",
     tickets: "Tiket Support", faq: "FAQ", templates: "Template", broadcast: "Broadcast",
-    agents: "Agents", analytics: "Analytics", settings: "Pengaturan Bisnis",
+    agents: "Agents", important: "Pesan Penting", analytics: "Analytics", settings: "Pengaturan Bisnis",
   };
   document.getElementById("pageTitle").textContent = titles[page] || page;
   const content = document.getElementById("pageContent");
@@ -145,6 +157,7 @@ async function showPage(page) {
       case "templates": await renderTemplates(content); break;
       case "broadcast": await renderBroadcast(content); break;
       case "agents": await renderAgents(content); break;
+      case "important": await renderImportant(content); break;
       case "analytics": await renderAnalytics(content); break;
       case "settings": await renderSettings(content); break;
     }
@@ -660,6 +673,102 @@ async function renderAnalytics(el) {
 }
 
 // ===== SETTINGS =====
+// ===== IMPORTANT MESSAGES =====
+async function renderImportant(el) {
+  const stats = await api("/api/important/stats");
+  const botFilter = selectedBotId ? `?botId=${selectedBotId}` : "";
+  const messages = await api(`/api/important${botFilter}`);
+  const categoryLabels = { keluhan: "Keluhan", refund: "Refund", pembayaran: "Pembayaran", urgent: "Urgent", pertanyaan_produk: "Produk", pengiriman: "Pengiriman", kerjasama: "Kerjasama", umum: "Umum" };
+  const priorityBadge = (p) => p === "urgent" ? "badge-red" : p === "high" ? "badge-yellow" : "badge-blue";
+
+  el.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div class="card p-4 stat-card"><div class="text-2xl font-bold text-red-500">${stats.unread || 0}</div><div class="text-sm text-gray-500">Belum Dibaca</div></div>
+      <div class="card p-4 stat-card"><div class="text-2xl font-bold text-orange-500">${stats.urgent || 0}</div><div class="text-sm text-gray-500">Urgent</div></div>
+      <div class="card p-4 stat-card"><div class="text-2xl font-bold text-yellow-500">${stats.high || 0}</div><div class="text-sm text-gray-500">Prioritas Tinggi</div></div>
+      <div class="card p-4 stat-card"><div class="text-2xl font-bold text-blue-500">${stats.total || 0}</div><div class="text-sm text-gray-500">Total Pesan</div></div>
+    </div>
+    <div class="card">
+      <div class="flex justify-between items-center p-4 border-b">
+        <h3 class="font-bold">Pesan Penting dari Customer</h3>
+        <div class="flex gap-2">
+          <button onclick="markAllRead()" class="btn btn-outline text-sm"><i class="fas fa-check-double mr-1"></i>Tandai Semua Dibaca</button>
+          <button onclick="exportImportant()" class="btn btn-primary text-sm"><i class="fas fa-download mr-1"></i>Export CSV</button>
+        </div>
+      </div>
+      ${messages.length === 0 ? '<div class="p-8 text-center text-gray-400">Belum ada pesan penting terdeteksi</div>' : `
+      <table>
+        <thead><tr><th>Waktu</th><th>Bot</th><th>Customer</th><th>Pesan</th><th>Kategori</th><th>Prioritas</th><th>Status</th><th>Aksi</th></tr></thead>
+        <tbody>${messages.map(m => `
+          <tr class="${m.is_read ? "" : "bg-yellow-50"}">
+            <td class="text-xs">${formatDate(m.created_at)}</td>
+            <td class="text-xs">${m.bot_id || "-"}</td>
+            <td><div class="font-medium">${m.customer_name || "Unknown"}</div><div class="text-xs text-gray-400">${(m.customer_jid || "").split("@")[0]}</div></td>
+            <td class="max-w-xs"><div class="truncate" title="${m.message.replace(/"/g, '&quot;')}">${m.message}</div>${m.notes ? `<div class="text-xs text-blue-500 mt-1"><i class="fas fa-sticky-note mr-1"></i>${m.notes}</div>` : ""}</td>
+            <td><span class="badge badge-blue">${categoryLabels[m.category] || m.category}</span></td>
+            <td><span class="badge ${priorityBadge(m.priority)}">${m.priority}</span></td>
+            <td>${m.is_read ? '<span class="text-green-500 text-xs"><i class="fas fa-check"></i> Dibaca</span>' : '<span class="text-red-500 text-xs"><i class="fas fa-circle"></i> Baru</span>'}</td>
+            <td class="flex gap-1">
+              ${m.is_read ? "" : `<button onclick="markRead(${m.id})" class="btn btn-outline text-xs" title="Tandai dibaca"><i class="fas fa-check"></i></button>`}
+              <button onclick="addNote(${m.id}, '${m.notes.replace(/'/g, "\\'")}')" class="btn btn-outline text-xs" title="Catatan"><i class="fas fa-sticky-note"></i></button>
+              <button onclick="replyImportant('${m.customer_jid}')" class="btn btn-outline text-xs" title="Balas"><i class="fas fa-reply"></i></button>
+              <button onclick="deleteImportant(${m.id})" class="btn btn-danger text-xs" title="Hapus"><i class="fas fa-trash"></i></button>
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`}
+    </div>`;
+  updateImportantBadge();
+}
+
+async function updateImportantBadge() {
+  try {
+    const stats = await api("/api/important/stats");
+    const badge = document.getElementById("importantBadge");
+    if (!badge) return;
+    if (stats.unread > 0) { badge.textContent = stats.unread; badge.classList.remove("hidden"); }
+    else { badge.classList.add("hidden"); }
+  } catch { /* not logged in */ }
+}
+
+async function markRead(id) { await api(`/api/important/${id}/read`, { method: "PUT" }); showPage("important"); }
+async function markAllRead() { await api("/api/important/read-all", { method: "PUT", body: { botId: selectedBotId || null } }); toast("Semua ditandai dibaca"); showPage("important"); }
+
+function addNote(id, existing) {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-sticky-note mr-2 text-yellow-500"></i>Tambah Catatan</h3>
+    <textarea id="importantNote" rows="3" class="mb-3">${existing || ""}</textarea>
+    <div class="flex gap-2"><button onclick="saveNote(${id})" class="btn btn-primary">Simpan</button><button onclick="closeModal()" class="btn btn-outline">Batal</button></div>
+  `);
+}
+
+async function saveNote(id) { await api(`/api/important/${id}/notes`, { method: "PUT", body: { notes: document.getElementById("importantNote").value } }); closeModal(); toast("Catatan disimpan"); showPage("important"); }
+
+function replyImportant(jid) {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-reply mr-2 text-blue-500"></i>Balas Pesan</h3>
+    <p class="text-sm text-gray-500 mb-3">Ke: ${jid.split("@")[0]}</p>
+    <textarea id="msgContent" rows="4" placeholder="Ketik balasan..."></textarea>
+    <button onclick="doSendMsg('${jid}')" class="btn btn-primary w-full mt-3">Kirim via ${selectedBotId || "Bot"}</button>
+  `);
+}
+
+async function deleteImportant(id) { if (!confirm("Hapus pesan penting ini?")) return; await api(`/api/important/${id}`, { method: "DELETE" }); toast("Pesan dihapus"); showPage("important"); }
+
+function exportImportant() {
+  api(`/api/important${selectedBotId ? "?botId=" + selectedBotId : ""}`).then(messages => {
+    const header = "Waktu,Bot,Customer,Nomor,Pesan,Kategori,Prioritas,Status,Catatan";
+    const rows = messages.map(m => {
+      const esc = (s) => '"' + (s || "").replace(/"/g, '""') + '"';
+      return [formatDate(m.created_at), m.bot_id, esc(m.customer_name), (m.customer_jid || "").split("@")[0], esc(m.message), m.category, m.priority, m.is_read ? "Dibaca" : "Baru", esc(m.notes)].join(",");
+    });
+    const csv = "﻿" + header + "\n" + rows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `pesan-penting-${new Date().toISOString().split("T")[0]}.csv`; a.click();
+    toast("CSV didownload");
+  });
+}
+
 async function renderSettings(el) {
   const p = await api("/api/profile");
   el.innerHTML = `
