@@ -36,8 +36,8 @@ export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pu
 
   if (!customer) return;
 
-  const msgCount = db.prepare("SELECT COUNT(*) as c FROM messages_log WHERE customer_id = ?").get(customer.id);
-  if (msgCount.c > 1) return;
+  const outCount = db.prepare("SELECT COUNT(*) as c FROM messages_log WHERE customer_id = ? AND direction = 'out'").get(customer.id);
+  if (outCount.c > 0) return;
 
   const greeting = getGreeting();
   let welcomeMsg = profile.welcome_message || "Halo! Ada yang bisa kami bantu?";
