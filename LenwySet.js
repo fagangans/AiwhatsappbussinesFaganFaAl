@@ -37,6 +37,13 @@ process.on("uncaughtException", (err) => {
   console.error(chalk.red.bold("⚠️  Uncaught Exception:"), err);
 });
 
+function gracefulShutdown(signal) {
+  console.log(chalk.yellow.bold(`\n⏹  ${signal} diterima, menutup aplikasi...`));
+  process.exit(0);
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
 (async () => {
   try {
     let dashboardApp = null;

@@ -20,6 +20,8 @@ import "./database/Menu/LenwyMenu.js";
 
 // [ ===== Business Module ===== ]
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
+import { askBusinessAssistant } from "./case/business/ai-assistant.js";
+import { getProfile } from "./database/business/db.js";
 
 // [ ===== Import Pustaka ===== ]
 import fs from "fs";
@@ -34,6 +36,7 @@ import { dirname } from "path";
 const processedMessages = new Set();
 const groupMetadataCache = new Map();
 const lastFallbackReply = new Map();
+const aiInFlight = new Set();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -357,17 +360,32 @@ export default async (lenwy, m, meta) => {
     }
   }
   if (!usedPrefix && !globalThis.noprefix) {
-    // Pesan teks bebas tanpa prefix di chat pribadi: beri arahan singkat
-    // agar bot tidak terkesan diam/tidak menjawab, dengan cooldown anti-spam.
+    // Pesan teks bebas tanpa prefix (chat customer service biasa).
     // Dilewati jika welcome/away message baru saja terkirim di pesan ini.
     if (!isGroup && !sentWelcome && !sentAway) {
-      const lastReply = lastFallbackReply.get(normalizedSender) || 0;
-      if (Date.now() - lastReply > 60000) {
-        lastFallbackReply.set(normalizedSender, Date.now());
-        setTimeout(() => lastFallbackReply.delete(normalizedSender), 60000);
-        await lenwyreply(
-          `Maaf, saya tidak mengerti pesan teks bebas. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
-        );
+      const profile = getProfile(ownerId);
+      if (profile.ai_enabled) {
+        if (!aiInFlight.has(normalizedSender)) {
+          aiInFlight.add(normalizedSender);
+          try {
+            await lenwyreply(globalThis.mess.wait);
+            const answer = await askBusinessAssistant(body, ownerId);
+            await lenwyreply(
+              answer || `Maaf, asisten sedang tidak tersedia. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
+            );
+          } finally {
+            aiInFlight.delete(normalizedSender);
+          }
+        }
+      } else {
+        const lastReply = lastFallbackReply.get(normalizedSender) || 0;
+        if (Date.now() - lastReply > 60000) {
+          lastFallbackReply.set(normalizedSender, Date.now());
+          setTimeout(() => lastFallbackReply.delete(normalizedSender), 60000);
+          await lenwyreply(
+            `Maaf, saya tidak mengerti pesan teks bebas. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
+          );
+        }
       }
     }
     return;

@@ -214,6 +214,23 @@ async function showPage(page) {
     clients: "Kelola Client", settings: "Pengaturan Bisnis",
   };
   document.getElementById("pageTitle").textContent = titles[page] || page;
+  const descriptions = {
+    dashboard: "Ringkasan performa bisnis dan statistik harian.",
+    products: "Kelola katalog produk yang ditampilkan ke customer.",
+    orders: "Lihat dan proses pesanan masuk dari customer.",
+    customers: "Daftar customer yang pernah menghubungi bot.",
+    tickets: "Kelola tiket support dan keluhan dari customer.",
+    faq: "Atur pertanyaan umum yang sering ditanyakan customer.",
+    templates: "Buat template pesan untuk balasan cepat.",
+    broadcast: "Kirim pesan massal ke semua atau sebagian customer.",
+    agents: "Kelola agen CS yang menangani chat customer.",
+    botmanager: "Tambah, hapus, atau atur bot WhatsApp yang terhubung.",
+    important: "Pesan masuk yang terdeteksi penting atau mendesak.",
+    analytics: "Grafik dan statistik performa bot secara detail.",
+    clients: "Kelola akun client yang menggunakan layanan ini.",
+    settings: "Atur profil bisnis, jam operasional, dan fitur bot.",
+  };
+  document.getElementById("pageDesc").textContent = descriptions[page] || "";
   const content = document.getElementById("pageContent");
   content.innerHTML = '<div class="text-center py-12 text-gray-400"><i class="fas fa-spinner fa-spin text-3xl"></i></div>';
   try {
