@@ -20,6 +20,7 @@ import {
   fetchLatestBaileysVersion,
   downloadContentFromMessage,
   getContentType,
+  DisconnectReason,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import chalk from "chalk";
@@ -36,6 +37,9 @@ const __dirname = path.dirname(__filename);
 
 // Pairing Mode
 const usePairingCode = true;
+
+// Track active connection per bot to prevent reconnect stampede
+const activeSessions = new Map();
 
 // Fungsi Input Terminal
 async function question(prompt) {
@@ -57,12 +61,14 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   const botId = botConfig.id;
   const botName = botConfig.name;
   const sessionPath = path.resolve(__dirname, "../sessions", botId);
+  const tag = `[${botName}]`;
+
+  const sessionId = Date.now();
+  activeSessions.set(botId, sessionId);
 
   if (!fs.existsSync(sessionPath)) {
     fs.mkdirSync(sessionPath, { recursive: true });
   }
-
-  const tag = `[${botName}]`;
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
 
@@ -86,8 +92,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
   attachSticker(lenwy);
 
-  // Handle Pairing
-  if (usePairingCode && !lenwy.authState.creds.registered) {
+  // Handle Pairing — only on first connect, NEVER on reconnect
+  if (usePairingCode && !lenwy.authState.creds.registered && !isReconnect) {
     try {
       let phoneNumber;
       if (botConfig.phone) {
@@ -114,10 +120,29 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   lenwy.ev.on("creds.update", saveCreds);
 
   lenwy.ev.on("connection.update", (update) => {
-    const { connection } = update;
+    const { connection, lastDisconnect } = update;
+
     if (connection === "close") {
-      console.log(chalk.red(`❌  ${tag} Koneksi Terputus, Mencoba Menyambung Ulang`));
-      connectToWhatsApp(dashboardApp, botConfig, true);
+      // If this session is no longer the active one for this bot, stop
+      if (activeSessions.get(botId) !== sessionId) {
+        return;
+      }
+
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+      if (shouldReconnect) {
+        console.log(chalk.yellow(`⏳  ${tag} Koneksi terputus (${statusCode || "unknown"}), reconnect dalam 5 detik...`));
+        setTimeout(() => {
+          // Check again before reconnecting
+          if (activeSessions.get(botId) === sessionId) {
+            connectToWhatsApp(dashboardApp, botConfig, true);
+          }
+        }, 5000);
+      } else {
+        console.log(chalk.red(`❌  ${tag} Bot logged out, tidak reconnect`));
+        activeSessions.delete(botId);
+      }
     } else if (connection === "open") {
       console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
       if (dashboardApp && dashboardApp.setWaSocket) {
