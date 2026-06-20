@@ -175,8 +175,17 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
   // Console Log
   lenwy.ev.on("messages.upsert", async (m) => {
+    try {
+      await handleIncomingMessage(m);
+    } catch (err) {
+      console.error(chalk.red.bold(`❌  ${tag} Gagal memproses pesan masuk:`), err);
+    }
+  });
+
+  async function handleIncomingMessage(m) {
     const msg = m.messages[0];
     if (!msg.message) return;
+    if (msg.key.fromMe) return;
 
     const sender = msg.key.remoteJid;
     const pushname = msg.pushName || "User";
@@ -259,8 +268,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
     // Import Handler
     const { default: handler } = await import("./lenwy.js");
-    handler(lenwy, m, { body, mediaType, sender, pushname, botId, dashboardApp, ownerId: botConfig.owner_id || 1 });
-  });
+    await handler(lenwy, m, { body, mediaType, sender, pushname, botId, dashboardApp, ownerId: botConfig.owner_id || 1 });
+  }
 }
 
 // Export

@@ -29,15 +29,15 @@ export function handleAutoReply(lenwy, replyJid, normalizedSender, pushname, bod
 
 export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId = 1, botId = "") {
   const profile = getProfile(ownerId);
-  if (!profile.auto_reply_enabled) return;
+  if (!profile.auto_reply_enabled) return false;
 
   const { default: db } = await import("../../database/business/db.js");
   const customer = db.prepare("SELECT * FROM customers WHERE jid = ? AND owner_id = ?").get(normalizedSender, ownerId);
 
-  if (!customer) return;
+  if (!customer) return false;
 
   const outCount = db.prepare("SELECT COUNT(*) as c FROM messages_log WHERE customer_id = ? AND direction = 'out'").get(customer.id);
-  if (outCount.c > 0) return;
+  if (outCount.c > 0) return false;
 
   const greeting = getGreeting();
   let welcomeMsg = profile.welcome_message || "Halo! Ada yang bisa kami bantu?";
@@ -68,6 +68,7 @@ export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pu
   await lenwy.sendMessage(replyJid, { text }, { quoted: len });
   logMessage(customer.id, "out", text, "text", ownerId, botId);
   updateDailyAnalytics({ messages_out: 1 }, ownerId);
+  return true;
 }
 
 export async function handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId = 1, botId = "") {

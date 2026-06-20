@@ -33,6 +33,7 @@ import { dirname } from "path";
 // Track Messages
 const processedMessages = new Set();
 const groupMetadataCache = new Map();
+const lastFallbackReply = new Map();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -343,10 +344,10 @@ export default async (lenwy, m, meta) => {
   }
 
   // Welcome Message for New Customers
-  await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId, botId || "");
+  const sentWelcome = await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId, botId || "");
 
   // Away Message (Outside Business Hours)
-  await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId, botId || "");
+  const sentAway = await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId, botId || "");
 
   let usedPrefix = null;
   for (const pre of globalThis.prefix) {
@@ -355,7 +356,22 @@ export default async (lenwy, m, meta) => {
       break;
     }
   }
-  if (!usedPrefix && !globalThis.noprefix) return;
+  if (!usedPrefix && !globalThis.noprefix) {
+    // Pesan teks bebas tanpa prefix di chat pribadi: beri arahan singkat
+    // agar bot tidak terkesan diam/tidak menjawab, dengan cooldown anti-spam.
+    // Dilewati jika welcome/away message baru saja terkirim di pesan ini.
+    if (!isGroup && !sentWelcome && !sentAway) {
+      const lastReply = lastFallbackReply.get(normalizedSender) || 0;
+      if (Date.now() - lastReply > 60000) {
+        lastFallbackReply.set(normalizedSender, Date.now());
+        setTimeout(() => lastFallbackReply.delete(normalizedSender), 60000);
+        await lenwyreply(
+          `Maaf, saya tidak mengerti pesan teks bebas. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
+        );
+      }
+    }
+    return;
+  }
 
   const args = usedPrefix
     ? body.slice(usedPrefix.length).trim().split(" ")

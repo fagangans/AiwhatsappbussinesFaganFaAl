@@ -30,6 +30,13 @@ const config = {
   dashboard: true,
 };
 
+process.on("unhandledRejection", (reason) => {
+  console.error(chalk.red.bold("⚠️  Unhandled Rejection:"), reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error(chalk.red.bold("⚠️  Uncaught Exception:"), err);
+});
+
 (async () => {
   try {
     let dashboardApp = null;
