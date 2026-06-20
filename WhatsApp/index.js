@@ -140,7 +140,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
           }
         }, 5000);
       } else {
-        console.log(chalk.red(`❌  ${tag} Bot logged out, tidak reconnect`));
+        const reason = lastDisconnect?.error?.output?.payload?.message || lastDisconnect?.error?.message || "tidak diketahui";
+        console.log(chalk.red(`❌  ${tag} Bot logged out, tidak reconnect (statusCode: ${statusCode}, alasan: ${reason})`));
         activeSessions.delete(botId);
       }
     } else if (connection === "open") {
