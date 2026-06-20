@@ -39,10 +39,11 @@ const config = {
       dashboardApp = startDashboard();
     }
 
-    const { default: startWhatsApp } = await import("./WhatsApp/index.js");
+    const { default: startWhatsApp, stopBot } = await import("./WhatsApp/index.js");
 
     if (dashboardApp) {
       dashboardApp.connectBot = (botConfig) => startWhatsApp(dashboardApp, botConfig);
+      dashboardApp.stopBot = stopBot;
     }
 
     const dbBots = getAllBots();

@@ -177,7 +177,7 @@ watchPlugins();
 
 // Export Handler
 export default async (lenwy, m, meta) => {
-  const { body, mediaType, sender: originalSender, pushname, botId, dashboardApp, ownerId, isWarmingUp } = meta;
+  const { body, mediaType, sender: originalSender, pushname, botId, dashboardApp, ownerId } = meta;
   const msg = m.messages[0];
   if (!msg.message) return;
 
@@ -342,13 +342,11 @@ export default async (lenwy, m, meta) => {
     }
   }
 
-  if (!isWarmingUp) {
-    // Welcome Message for New Customers
-    await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
+  // Welcome Message for New Customers
+  await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
 
-    // Away Message (Outside Business Hours)
-    await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
-  }
+  // Away Message (Outside Business Hours)
+  await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
 
   let usedPrefix = null;
   for (const pre of globalThis.prefix) {

@@ -211,6 +211,8 @@ export default function startDashboard() {
       });
       res.json({ success: true, botId, pairingCode: result.code });
     } catch (e) {
+      app.stopBot?.(botId);
+      waSockets.delete(botId);
       deleteBot(botId);
       res.status(500).json({ error: "Gagal menghubungkan bot: " + e.message });
     }
@@ -225,8 +227,9 @@ export default function startDashboard() {
     const sock = getSocket(req.params.id);
     if (sock) {
       try { sock.logout(); } catch {}
-      waSockets.delete(req.params.id);
     }
+    app.stopBot?.(req.params.id);
+    waSockets.delete(req.params.id);
     deleteBot(req.params.id);
     const sessionPath = path.resolve(__dirname, "../sessions", req.params.id);
     if (fs.existsSync(sessionPath)) {
