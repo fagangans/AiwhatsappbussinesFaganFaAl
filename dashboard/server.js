@@ -318,6 +318,9 @@ export default function startDashboard() {
   app.get("/api/products/:id", auth, (req, res) => {
     const product = getProduct(parseInt(req.params.id));
     if (!product) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && product.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa melihat produk milik orang lain" });
+    }
     res.json(product);
   });
 
@@ -332,11 +335,21 @@ export default function startDashboard() {
   });
 
   app.put("/api/products/:id", auth, (req, res) => {
+    const existing = getProduct(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengubah produk milik orang lain" });
+    }
     updateProduct(parseInt(req.params.id), req.body);
     res.json({ success: true });
   });
 
   app.delete("/api/products/:id", auth, (req, res) => {
+    const existing = getProduct(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa menghapus produk milik orang lain" });
+    }
     deleteProduct(parseInt(req.params.id));
     res.json({ success: true });
   });
@@ -369,6 +382,11 @@ export default function startDashboard() {
   });
 
   app.put("/api/customers/:id", auth, (req, res) => {
+    const existing = db.prepare("SELECT owner_id FROM customers WHERE id = ?").get(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengubah customer milik orang lain" });
+    }
     updateCustomer(parseInt(req.params.id), req.body);
     res.json({ success: true });
   });
@@ -489,6 +507,11 @@ export default function startDashboard() {
   });
 
   app.delete("/api/faq/:id", auth, (req, res) => {
+    const existing = db.prepare("SELECT owner_id FROM faq WHERE id = ?").get(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa menghapus FAQ milik orang lain" });
+    }
     deleteFaq(parseInt(req.params.id));
     res.json({ success: true });
   });
@@ -587,6 +610,11 @@ export default function startDashboard() {
   });
 
   app.put("/api/important/:id/read", auth, (req, res) => {
+    const existing = db.prepare("SELECT owner_id FROM important_messages WHERE id = ?").get(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengubah pesan milik orang lain" });
+    }
     markImportantRead(parseInt(req.params.id));
     res.json({ success: true });
   });
@@ -597,11 +625,21 @@ export default function startDashboard() {
   });
 
   app.put("/api/important/:id/notes", auth, (req, res) => {
+    const existing = db.prepare("SELECT owner_id FROM important_messages WHERE id = ?").get(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengubah pesan milik orang lain" });
+    }
     updateImportantNotes(parseInt(req.params.id), req.body.notes || "");
     res.json({ success: true });
   });
 
   app.delete("/api/important/:id", auth, (req, res) => {
+    const existing = db.prepare("SELECT owner_id FROM important_messages WHERE id = ?").get(parseInt(req.params.id));
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa menghapus pesan milik orang lain" });
+    }
     deleteImportantMessage(parseInt(req.params.id));
     res.json({ success: true });
   });

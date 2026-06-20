@@ -236,8 +236,11 @@ export default async (lenwy, m, meta) => {
   };
 
   // Custom Reply
-  const lenwyreply = (teks) =>
-    lenwy.sendMessage(replyJid, { text: teks }, { quoted: len });
+  const lenwyreply = async (teks) => {
+    const result = await lenwy.sendMessage(replyJid, { text: teks }, { quoted: len });
+    console.log(chalk.cyan.bold(`[${botId || "Bot"}] Bot Balas`), chalk.white(`-> ${replyJid} : ${teks}`));
+    return result;
+  };
 
   // Gambar Menu
   const MenuImage = fs.readFileSync(globalThis.MenuImage);
