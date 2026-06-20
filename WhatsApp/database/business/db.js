@@ -361,7 +361,10 @@ function repairDanglingForeignKeys() {
     }
   }
 
-  if (tablesToFix.length === 0) return;
+  if (tablesToFix.length === 0) {
+    console.log("[DB] Foreign key check OK — tidak ada yang perlu diperbaiki.");
+    return;
+  }
 
   console.log("[DB] Memperbaiki foreign key yang rusak akibat migrasi sebelumnya...");
   db.pragma("foreign_keys = OFF");
