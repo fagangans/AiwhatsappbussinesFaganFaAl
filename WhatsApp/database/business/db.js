@@ -436,7 +436,18 @@ export function getCustomerCount(ownerId = null) {
 
 // === PRODUCTS ===
 export function addProduct(data) {
-  return db.prepare("INSERT INTO products (sku, name, description, price, discount_price, category, stock, image_url, owner_id) VALUES (@sku, @name, @description, @price, @discount_price, @category, @stock, @image_url, @owner_id)").run(data);
+  const params = {
+    sku: data.sku || null,
+    name: data.name,
+    description: data.description || "",
+    price: data.price,
+    discount_price: data.discount_price || 0,
+    category: data.category || "Umum",
+    stock: data.stock || 0,
+    image_url: data.image_url || "",
+    owner_id: data.owner_id,
+  };
+  return db.prepare("INSERT INTO products (sku, name, description, price, discount_price, category, stock, image_url, owner_id) VALUES (@sku, @name, @description, @price, @discount_price, @category, @stock, @image_url, @owner_id)").run(params);
 }
 
 export function updateProduct(id, data) {

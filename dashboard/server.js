@@ -190,7 +190,7 @@ export default function startDashboard() {
 
     try {
       const result = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => resolve({ code: null }), 30000);
+        const timeout = setTimeout(() => reject(new Error("Timeout menunggu pairing code")), 30000);
         app.connectBot({
           id: botId,
           name,
@@ -199,6 +199,10 @@ export default function startDashboard() {
           onPairingCode: (code) => {
             clearTimeout(timeout);
             resolve({ code });
+          },
+          onPairingError: (err) => {
+            clearTimeout(timeout);
+            reject(err);
           },
         }).catch(err => {
           clearTimeout(timeout);
