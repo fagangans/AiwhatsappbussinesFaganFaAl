@@ -221,6 +221,8 @@ export default async (lenwy, m, meta) => {
   const pplu = fs.readFileSync(globalThis.MenuImage);
   const len = {
     key: {
+      id: "LENWYBOTCS",
+      fromMe: false,
       participant: `0@s.whatsapp.net`,
       remoteJid: replyJid,
     },
