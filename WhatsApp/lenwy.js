@@ -373,8 +373,9 @@ export default async (lenwy, m, meta) => {
         if (!aiInFlight.has(normalizedSender)) {
           aiInFlight.add(normalizedSender);
           try {
-            await lenwyreply(globalThis.mess.wait);
+            await lenwy.sendPresenceUpdate("composing", replyJid).catch(() => {});
             const answer = await askBusinessAssistant(body, ownerId);
+            await lenwy.sendPresenceUpdate("paused", replyJid).catch(() => {});
             await lenwyreply(
               answer || `Maaf, asisten sedang tidak tersedia. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
             );
