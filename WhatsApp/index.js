@@ -41,6 +41,12 @@ const usePairingCode = true;
 // Track active connection per bot to prevent reconnect stampede
 const activeSessions = new Map();
 
+// Masa pemanasan setelah pairing pertama kali — selama periode ini bot tidak
+// mengirim balasan otomatis (welcome/away message), supaya tidak langsung
+// terlihat seperti bot ke sistem anti-spam WhatsApp pada device yang baru di-link.
+const WARMUP_MS = 30 * 60 * 1000; // 30 menit
+const firstConnectedAt = new Map();
+
 // Fungsi Input Terminal
 async function question(prompt) {
   process.stdout.write(prompt);
@@ -146,6 +152,10 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       }
     } else if (connection === "open") {
       console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
+      if (!firstConnectedAt.has(botId)) {
+        firstConnectedAt.set(botId, Date.now());
+        console.log(chalk.yellow(`🔥  ${tag} Masa pemanasan ${WARMUP_MS / 60000} menit dimulai — balasan otomatis ditunda sementara`));
+      }
       if (dashboardApp && dashboardApp.setWaSocket) {
         dashboardApp.setWaSocket(botId, botName, lenwy);
         console.log(chalk.green(`✔  ${tag} Dashboard terhubung`));
@@ -239,7 +249,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
     // Import Handler
     const { default: handler } = await import("./lenwy.js");
-    handler(lenwy, m, { body, mediaType, sender, pushname, botId, dashboardApp, ownerId: botConfig.owner_id || 1 });
+    const isWarmingUp = Date.now() - (firstConnectedAt.get(botId) || 0) < WARMUP_MS;
+    handler(lenwy, m, { body, mediaType, sender, pushname, botId, dashboardApp, ownerId: botConfig.owner_id || 1, isWarmingUp });
   });
 }
 
