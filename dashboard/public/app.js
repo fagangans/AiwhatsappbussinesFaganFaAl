@@ -860,6 +860,9 @@ function exportImportant() {
 
 async function renderSettings(el) {
   const p = await api("/api/profile");
+  const isAdmin = userRole === "admin";
+  let owners = [];
+  if (isAdmin) { try { owners = await api("/api/bot-owners"); } catch {} }
   el.innerHTML = `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="card p-6">
@@ -898,6 +901,17 @@ async function renderSettings(el) {
             <button onclick="saveMessages()" class="btn btn-primary w-full">Simpan Pesan</button>
           </div>
         </div>
+        ${isAdmin ? `
+        <div class="card p-6">
+          <h3 class="text-lg font-bold mb-4"><i class="fas fa-user-shield mr-2 text-orange-500"></i>Owner Bot</h3>
+          <p class="text-xs text-gray-500 mb-3">Nomor di sini bisa pakai perintah teknis bot (restart, kelola fitur, dll). Tambahkan hanya nomor yang benar-benar dipercaya.</p>
+          <div class="flex gap-2 mb-3"><input id="ownerNumber" placeholder="62812xxxxxxx" class="flex-1"><button onclick="addBotOwner()" class="btn btn-primary">Tambah</button></div>
+          <div class="space-y-2">${owners.length ? owners.map(o => `
+            <div class="flex justify-between items-center bg-gray-50 px-3 py-2 rounded text-sm">
+              <span>${o.replace("@s.whatsapp.net", "")}</span>
+              <button onclick="removeBotOwner('${o}')" class="text-red-500 text-xs"><i class="fas fa-trash"></i></button>
+            </div>`).join("") : '<p class="text-xs text-gray-400">Belum ada owner bot</p>'}</div>
+        </div>` : ""}
         <div class="card p-6">
           <h3 class="text-lg font-bold mb-4"><i class="fas fa-lock mr-2 text-red-500"></i>Ganti Password</h3>
           <div class="space-y-3">
@@ -947,6 +961,23 @@ async function saveHours() {
 async function saveMessages() {
   await api("/api/profile", { method: "PUT", body: { welcome_message: document.getElementById("sWelcome").value, away_message: document.getElementById("sAway").value, auto_reply_enabled: document.getElementById("sAutoReply").checked ? 1 : 0, ai_enabled: document.getElementById("sAI").checked ? 1 : 0 } });
   toast("Pesan otomatis disimpan");
+}
+
+async function addBotOwner() {
+  const number = document.getElementById("ownerNumber").value.trim();
+  if (!number) return toast("Nomor wajib diisi", "error");
+  try {
+    await api("/api/bot-owners", { method: "POST", body: { number } });
+    toast("Owner bot ditambahkan");
+    showPage("settings");
+  } catch (e) { toast(e.message, "error"); }
+}
+
+async function removeBotOwner(jid) {
+  if (!confirm("Hapus owner bot ini?")) return;
+  await api(`/api/bot-owners/${encodeURIComponent(jid)}`, { method: "DELETE" });
+  toast("Owner bot dihapus");
+  showPage("settings");
 }
 
 // ===== BOT MANAGER =====

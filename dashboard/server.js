@@ -302,6 +302,48 @@ export default function startDashboard() {
     res.json({ success: true, profile: getProfile(getWriteOwnerId(req)) });
   });
 
+  // ===== BOT OWNERS (creator.json) =====
+  const CREATOR_PATH = path.join(process.cwd(), "WhatsApp", "database", "creator.json");
+
+  function readCreators() {
+    try {
+      return JSON.parse(fs.readFileSync(CREATOR_PATH, "utf8"));
+    } catch {
+      return [];
+    }
+  }
+
+  function writeCreators(list) {
+    fs.writeFileSync(CREATOR_PATH, JSON.stringify(list, null, 2));
+  }
+
+  function normalizeOwnerNumber(raw) {
+    const digits = String(raw || "").replace(/\D/g, "");
+    if (!digits) return null;
+    return `${digits}@s.whatsapp.net`;
+  }
+
+  app.get("/api/bot-owners", auth, adminOnly, (req, res) => {
+    res.json(readCreators());
+  });
+
+  app.post("/api/bot-owners", auth, adminOnly, (req, res) => {
+    const jid = normalizeOwnerNumber(req.body.number);
+    if (!jid) return res.status(400).json({ error: "Nomor tidak valid" });
+    const list = readCreators();
+    if (!list.includes(jid)) {
+      list.push(jid);
+      writeCreators(list);
+    }
+    res.json({ success: true, owners: list });
+  });
+
+  app.delete("/api/bot-owners/:jid", auth, adminOnly, (req, res) => {
+    const list = readCreators().filter((j) => j !== req.params.jid);
+    writeCreators(list);
+    res.json({ success: true, owners: list });
+  });
+
   // ===== PRODUCTS =====
   app.get("/api/products", auth, (req, res) => {
     const ownerId = getViewContext(req).ownerId;
