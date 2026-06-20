@@ -345,24 +345,45 @@ if (needsMigration) {
 }
 
 // === REPAIR: perbaiki FOREIGN KEY yang nyangkut ke tabel _old hasil migrasi lama ===
+// Dideteksi langsung lewat PRAGMA foreign_key_list (bukan tebak-tebakan pola teks),
+// supaya tidak peduli format spasi/penulisan FK yang berbeda-beda dari versi lama.
 function repairDanglingForeignKeys() {
-  const renamedTables = ["customers", "products", "templates", "agents", "business_profile"];
-  const dependentTables = db.prepare(
-    "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE '%_old(%'",
-  ).all();
+  const existingTables = new Set(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(r => r.name),
+  );
 
-  if (dependentTables.length === 0) return;
+  const tablesToFix = [];
+  for (const tableName of existingTables) {
+    const fks = db.prepare(`PRAGMA foreign_key_list(${tableName})`).all();
+    const danglingRefs = fks.filter(fk => !existingTables.has(fk.table));
+    if (danglingRefs.length > 0) {
+      tablesToFix.push({ name: tableName, danglingRefs });
+    }
+  }
+
+  if (tablesToFix.length === 0) return;
 
   console.log("[DB] Memperbaiki foreign key yang rusak akibat migrasi sebelumnya...");
   db.pragma("foreign_keys = OFF");
   db.pragma("legacy_alter_table = ON");
 
-  for (const { name, sql } of dependentTables) {
+  for (const { name, danglingRefs } of tablesToFix) {
+    const { sql } = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+    ).get(name);
+
     let fixedSql = sql;
-    for (const t of renamedTables) {
-      fixedSql = fixedSql.replace(new RegExp(`_${t}_old\\(`, "g"), `${t}(`);
+    for (const { table: refTable } of danglingRefs) {
+      // _customers_old -> customers, _bp_old -> business_profile, dst.
+      const target = refTable.startsWith("_bp_old")
+        ? "business_profile"
+        : refTable.replace(/^_/, "").replace(/_old$/, "");
+      fixedSql = fixedSql.replace(
+        new RegExp(`${refTable}(\\s*\\()`, "g"),
+        `${target}$1`,
+      );
     }
-    fixedSql = fixedSql.replace(/_bp_old\(/g, "business_profile(");
+
     const backupName = `_${name}_fkbackup`;
     db.exec(`ALTER TABLE ${name} RENAME TO ${backupName};`);
     db.exec(fixedSql);
