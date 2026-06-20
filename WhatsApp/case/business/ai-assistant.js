@@ -2,6 +2,33 @@ import axios from "axios";
 import { getProfile, getAllProducts, getAllFaq } from "../../database/business/db.js";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
 
+const conversationHistory = new Map();
+const MAX_HISTORY = 10;
+const HISTORY_TTL = 30 * 60 * 1000;
+
+function getHistory(senderId) {
+  const entry = conversationHistory.get(senderId);
+  if (!entry) return [];
+  if (Date.now() - entry.lastUpdate > HISTORY_TTL) {
+    conversationHistory.delete(senderId);
+    return [];
+  }
+  return entry.messages;
+}
+
+function addToHistory(senderId, role, text) {
+  let entry = conversationHistory.get(senderId);
+  if (!entry) {
+    entry = { messages: [], lastUpdate: Date.now() };
+    conversationHistory.set(senderId, entry);
+  }
+  entry.messages.push({ role, text: text.slice(0, 500) });
+  if (entry.messages.length > MAX_HISTORY) {
+    entry.messages = entry.messages.slice(-MAX_HISTORY);
+  }
+  entry.lastUpdate = Date.now();
+}
+
 function buildKnowledgeContext(ownerId) {
   const profile = getProfile(ownerId);
   const products = getAllProducts(null, ownerId) || [];
@@ -35,6 +62,37 @@ function buildKnowledgeContext(ownerId) {
   return { hasData: true, context };
 }
 
+function cleanResponse(text) {
+  if (!text) return text;
+  return text
+    .replace(/#{1,6}\s*/g, "")
+    .replace(/\*{3,}/g, "**")
+    .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, "").trim())
+    .replace(/^[-*] /gm, "- ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+const INTENT_PATTERNS = [
+  { intent: "menu", patterns: [/\b(lihat|tampil|kasih|mau|bisa)\b.*\b(menu|fitur|layanan|bantuan)\b/i, /\b(menu|fitur|layanan)\b.*\b(apa|aja|saja|nya)\b/i, /\bhelp\b/i] },
+  { intent: "katalog", patterns: [/\b(lihat|tampil|tunjuk|kasih|mau)\b.*\b(katalog|produk|barang|daftar.*produk|jualan)\b/i, /\b(produk|barang|jualan)\b.*\b(apa|aja|saja)\b/i, /\b(ada|punya|jual)\b.*\bapa\b/i] },
+  { intent: "pesan", patterns: [/\b(mau|ingin|pengen|mw)\b.*\b(pesan|order|beli|ambil)\b/i, /\b(cara|gimana|bagaimana)\b.*\b(pesan|order|beli)\b/i] },
+  { intent: "faq", patterns: [/\b(pertanyaan|tanya|faq)\b.*\b(umum|sering)\b/i, /\b(sering)\b.*\b(ditanya|tanyakan)\b/i] },
+  { intent: "cekorder", patterns: [/\b(cek|status|lacak|track|mana)\b.*\b(pesanan|order|orderan|paket|kiriman)\b/i, /\bpesanan\b.*\b(saya|ku|gw|gua|gue)\b/i] },
+  { intent: "buattiket", patterns: [/\b(buat|bikin|ajukan|kirim)\b.*\b(tiket|keluhan|komplain|laporan|aduan)\b/i, /\b(mau|ingin)\b.*\b(komplain|keluhan|lapor)\b/i] },
+  { intent: "bayar", patterns: [/\b(cara|gimana|bagaimana)\b.*\b(bayar|pembayaran|transfer)\b/i, /\b(info|informasi)\b.*\b(pembayaran|bayar|rekening)\b/i] },
+];
+
+export function detectIntent(text) {
+  const lower = text.toLowerCase();
+  for (const { intent, patterns } of INTENT_PATTERNS) {
+    for (const pattern of patterns) {
+      if (pattern.test(lower)) return intent;
+    }
+  }
+  return null;
+}
+
 async function callGemini(prompt, apiKey) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const { data } = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 20000 });
@@ -59,16 +117,31 @@ async function callAIProvider(prompt) {
   return Ai4Chat(prompt);
 }
 
-export async function askBusinessAssistant(question, ownerId = 1) {
+export async function askBusinessAssistant(question, ownerId = 1, senderId = "") {
   const { hasData, context } = buildKnowledgeContext(ownerId);
 
+  const history = senderId ? getHistory(senderId) : [];
+  let historyBlock = "";
+  if (history.length > 0) {
+    historyBlock = "\nRiwayat Percakapan Terakhir:\n" +
+      history.map(h => `${h.role === "customer" ? "Customer" : "Kamu"}: ${h.text}`).join("\n") +
+      "\n";
+  }
+
+  const formatRule = "PENTING: Jawab seperti manusia biasa di WhatsApp. Jangan gunakan heading (#), jangan gunakan bold berlebihan, jangan gunakan markdown code block. Gunakan baris baru biasa untuk paragraf. Boleh pakai *bold* untuk penekanan singkat saja. Tulis secara alami, hangat, dan kasual.";
+
   const prompt = hasData
-    ? `Kamu adalah asisten customer service untuk bisnis berikut. HANYA jawab pertanyaan yang berkaitan dengan bisnis ini berdasarkan informasi di bawah. Jika pertanyaan customer TIDAK berkaitan dengan bisnis ini, tolak dengan sopan dan arahkan kembali ke topik bisnis ini saja.\n\nInformasi Bisnis:\n${context}\n\nPertanyaan Customer: ${question}\n\nJawab singkat, ramah, dan dalam Bahasa Indonesia.`
-    : `Kamu adalah asisten customer service yang ramah dan membantu. Jawab pertanyaan berikut dengan singkat dan jelas dalam Bahasa Indonesia.\n\nPertanyaan: ${question}`;
+    ? `Kamu adalah asisten customer service untuk bisnis berikut. HANYA jawab pertanyaan yang berkaitan dengan bisnis ini berdasarkan informasi di bawah. Jika pertanyaan customer TIDAK berkaitan dengan bisnis ini, tolak dengan sopan dan arahkan kembali ke topik bisnis ini saja.\n\n${formatRule}\n\nInformasi Bisnis:\n${context}${historyBlock}\nPertanyaan Customer: ${question}\n\nJawab singkat, ramah, dan dalam Bahasa Indonesia.`
+    : `Kamu adalah asisten customer service yang ramah dan membantu. ${formatRule}${historyBlock}\nPertanyaan: ${question}\n\nJawab singkat, ramah, dan dalam Bahasa Indonesia.`;
 
   try {
     const answer = await callAIProvider(prompt);
-    return answer || null;
+    const cleaned = cleanResponse(answer);
+    if (senderId && cleaned) {
+      addToHistory(senderId, "customer", question);
+      addToHistory(senderId, "assistant", cleaned);
+    }
+    return cleaned || null;
   } catch (err) {
     console.error("AI Assistant Error:", err.message);
     return null;

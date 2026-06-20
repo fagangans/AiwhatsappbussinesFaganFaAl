@@ -20,7 +20,7 @@ import "./database/Menu/LenwyMenu.js";
 
 // [ ===== Business Module ===== ]
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
-import { askBusinessAssistant } from "./case/business/ai-assistant.js";
+import { askBusinessAssistant, detectIntent } from "./case/business/ai-assistant.js";
 import { getProfile } from "./database/business/db.js";
 
 // [ ===== Import Pustaka ===== ]
@@ -244,8 +244,7 @@ export default async (lenwy, m, meta) => {
     return result;
   };
 
-  // Gambar Menu
-  const MenuImage = fs.readFileSync(globalThis.MenuImage);
+
 
   // Deteksi Grup & Admin
   const isGroup = replyJid.endsWith("@g.us");
@@ -365,16 +364,31 @@ export default async (lenwy, m, meta) => {
     }
   }
   if (!usedPrefix && !globalThis.noprefix) {
-    // Pesan teks bebas tanpa prefix (chat customer service biasa).
-    // Dilewati jika welcome/away message baru saja terkirim di pesan ini.
     if (!isGroup && !sentWelcome && !sentAway) {
       const profile = getProfile(ownerId);
       if (profile.ai_enabled) {
+        const intent = detectIntent(body);
+        if (intent && commands.has(intent)) {
+          const intentArgs = [];
+          const intentQ = "";
+          const pluginData = commands.get(intent);
+          const { execute, info } = pluginData;
+          if (info.enabled !== false && !info.maintenance) {
+            await execute({
+              command: intent, args: intentArgs, q: intentQ, lenwy, m, msg, len,
+              replyJid, senderJid, lenwyreply, LenwyText, LenwyWait: () => lenwyreply(globalThis.mess.wait),
+              LenwyVideo, LenwyImage, LenwyAudio, LenwyFile,
+              isGroup, isAdmin: false, isBotAdmin: false, isPremium: false, isLenwy: false,
+              plugins, commands, normalizedSender, deleteMessage, ownerId, botId,
+            });
+            return;
+          }
+        }
         if (!aiInFlight.has(normalizedSender)) {
           aiInFlight.add(normalizedSender);
           try {
             await lenwy.sendPresenceUpdate("composing", replyJid).catch(() => {});
-            const answer = await askBusinessAssistant(body, ownerId);
+            const answer = await askBusinessAssistant(body, ownerId, normalizedSender);
             await lenwy.sendPresenceUpdate("paused", replyJid).catch(() => {});
             await lenwyreply(
               answer || `Maaf, asisten sedang tidak tersedia. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
@@ -491,15 +505,7 @@ export default async (lenwy, m, meta) => {
         });
     }
 
-    await lenwy.sendMessage(
-      replyJid,
-      {
-        image: MenuImage,
-        caption: `${text}\n☘️ *Lenwy From Scratch*`,
-        mentions: [normalizedSender],
-      },
-      { quoted: len },
-    );
+    await lenwyreply(`${text}\n☘️ *Lenwy From Scratch*`);
   }
 
   // Category Menu
@@ -519,15 +525,7 @@ export default async (lenwy, m, meta) => {
         text += `*[+] ${folder.toUpperCase()}MENU*\n`;
       });
 
-    await lenwy.sendMessage(
-      replyJid,
-      {
-        image: MenuImage,
-        caption: `${text}\n☘️ *Lenwy From Scratch*`,
-        mentions: [normalizedSender],
-      },
-      { quoted: len },
-    );
+    await lenwyreply(`${text}\n☘️ *Lenwy From Scratch*`);
   }
 
   // Category Menu Dynamic
