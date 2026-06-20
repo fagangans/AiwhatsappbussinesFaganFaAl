@@ -230,7 +230,8 @@ async function showPage(page) {
     clients: "Kelola akun client yang menggunakan layanan ini.",
     settings: "Atur profil bisnis, jam operasional, dan fitur bot.",
   };
-  document.getElementById("pageDesc").textContent = descriptions[page] || "";
+  const descText = descriptions[page] || "";
+  document.getElementById("pageDesc").innerHTML = descText ? `<i class="fas fa-circle-info"></i> ${descText}` : "";
   const content = document.getElementById("pageContent");
   content.innerHTML = '<div class="text-center py-12 text-gray-400"><i class="fas fa-spinner fa-spin text-3xl"></i></div>';
   try {
