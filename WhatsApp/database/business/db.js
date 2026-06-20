@@ -259,6 +259,9 @@ const needsMigration = (() => {
 if (needsMigration) {
   console.log("[DB] Migrasi ke multi-tenant...");
   db.pragma("foreign_keys = OFF");
+  // Mencegah SQLite menulis ulang FOREIGN KEY di tabel lain (orders, tickets,
+  // messages_log, dst.) saat tabel customers/products/dll di-rename.
+  db.pragma("legacy_alter_table = ON");
 
   db.exec(`
     ALTER TABLE customers RENAME TO _customers_old;
@@ -336,9 +339,45 @@ if (needsMigration) {
   addColSafe("analytics", "owner_id", "INTEGER DEFAULT 1");
   addColSafe("important_messages", "owner_id", "INTEGER DEFAULT 1");
 
+  db.pragma("legacy_alter_table = OFF");
   db.pragma("foreign_keys = ON");
   console.log("[DB] Migrasi selesai!");
 }
+
+// === REPAIR: perbaiki FOREIGN KEY yang nyangkut ke tabel _old hasil migrasi lama ===
+function repairDanglingForeignKeys() {
+  const renamedTables = ["customers", "products", "templates", "agents", "business_profile"];
+  const dependentTables = db.prepare(
+    "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND sql LIKE '%_old(%'",
+  ).all();
+
+  if (dependentTables.length === 0) return;
+
+  console.log("[DB] Memperbaiki foreign key yang rusak akibat migrasi sebelumnya...");
+  db.pragma("foreign_keys = OFF");
+  db.pragma("legacy_alter_table = ON");
+
+  for (const { name, sql } of dependentTables) {
+    let fixedSql = sql;
+    for (const t of renamedTables) {
+      fixedSql = fixedSql.replace(new RegExp(`_${t}_old\\(`, "g"), `${t}(`);
+    }
+    fixedSql = fixedSql.replace(/_bp_old\(/g, "business_profile(");
+    const backupName = `_${name}_fkbackup`;
+    db.exec(`ALTER TABLE ${name} RENAME TO ${backupName};`);
+    db.exec(fixedSql);
+    const cols = db.prepare(`PRAGMA table_info(${name})`).all().map(c => c.name).join(",");
+    db.exec(`INSERT INTO ${name} (${cols}) SELECT ${cols} FROM ${backupName};`);
+    db.exec(`DROP TABLE ${backupName};`);
+    console.log(`[DB] Tabel ${name} diperbaiki.`);
+  }
+
+  db.pragma("legacy_alter_table = OFF");
+  db.pragma("foreign_keys = ON");
+  console.log("[DB] Perbaikan foreign key selesai!");
+}
+
+repairDanglingForeignKeys();
 
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_customers_jid_owner ON customers(jid, owner_id);
