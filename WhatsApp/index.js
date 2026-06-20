@@ -97,6 +97,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
           `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
         );
       }
+      await new Promise((resolve) => setTimeout(resolve, 3000));
       const code = await lenwy.requestPairingCode(phoneNumber.trim());
       console.log(`🎁 ${tag} Pairing Code : ${code}`);
       if (typeof botConfig.onPairingCode === "function") {
