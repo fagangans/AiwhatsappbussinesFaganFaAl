@@ -368,14 +368,25 @@ export default async (lenwy, m, meta) => {
       const profile = getProfile(ownerId);
       if (profile.ai_enabled) {
         const intent = detectIntent(body);
+        if (intent === "menu") {
+          let casePath = path.join(__dirname, "case");
+          let folders = fs
+            .readdirSync(casePath)
+            .filter((v) => fs.statSync(path.join(casePath, v)).isDirectory());
+          let text = globalThis.lenwymenu || "*📂 Daftar Menu*\n";
+          text += "\n*[ Available Categories ]*\n";
+          folders.sort((a, b) => a.localeCompare(b)).forEach((folder) => {
+            text += `*[+] ${folder.toUpperCase()}MENU*\n`;
+          });
+          await lenwyreply(`${text}\n☘️ *Lenwy From Scratch*`);
+          return;
+        }
         if (intent && commands.has(intent)) {
-          const intentArgs = [];
-          const intentQ = "";
           const pluginData = commands.get(intent);
           const { execute, info } = pluginData;
           if (info.enabled !== false && !info.maintenance) {
             await execute({
-              command: intent, args: intentArgs, q: intentQ, lenwy, m, msg, len,
+              command: intent, args: [], q: "", lenwy, m, msg, len,
               replyJid, senderJid, lenwyreply, LenwyText, LenwyWait: () => lenwyreply(globalThis.mess.wait),
               LenwyVideo, LenwyImage, LenwyAudio, LenwyFile,
               isGroup, isAdmin: false, isBotAdmin: false, isPremium: false, isLenwy: false,

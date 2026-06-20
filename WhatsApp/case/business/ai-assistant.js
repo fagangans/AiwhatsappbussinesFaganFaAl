@@ -66,10 +66,14 @@ function cleanResponse(text) {
   if (!text) return text;
   return text
     .replace(/#{1,6}\s*/g, "")
-    .replace(/\*{3,}/g, "**")
+    .replace(/\*{3,}/g, "*")
     .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, "").trim())
-    .replace(/^[-*] /gm, "- ")
+    .replace(/^[\s]*[-•]\s+/gm, "- ")
+    .replace(/^\d+\.\s+/gm, (m) => m)
+    .replace(/\*\*(.+?)\*\*/g, "*$1*")
     .replace(/\n{3,}/g, "\n\n")
+    .replace(/\\n/g, "\n")
+    .replace(/^"|"$/g, "")
     .trim();
 }
 
@@ -128,11 +132,20 @@ export async function askBusinessAssistant(question, ownerId = 1, senderId = "")
       "\n";
   }
 
-  const formatRule = "PENTING: Jawab seperti manusia biasa di WhatsApp. Jangan gunakan heading (#), jangan gunakan bold berlebihan, jangan gunakan markdown code block. Gunakan baris baru biasa untuk paragraf. Boleh pakai *bold* untuk penekanan singkat saja. Tulis secara alami, hangat, dan kasual.";
+  const formatRule = `ATURAN FORMAT JAWABAN (WAJIB DIPATUHI):
+- Kamu sedang chatting di WhatsApp, BUKAN menulis artikel atau dokumen.
+- DILARANG KERAS menggunakan heading (#), bullet list (*/-), code block (\`\`\`), atau format markdown apapun.
+- DILARANG menggunakan bold (**) lebih dari 2 kali per jawaban, dan hanya untuk kata kunci penting.
+- Tulis jawaban dalam paragraf pendek (2-3 kalimat per paragraf), pisahkan dengan satu baris kosong.
+- Gunakan bahasa Indonesia sehari-hari yang sopan dan hangat, seperti CS profesional tapi ramah.
+- Jangan gunakan emoji berlebihan, maksimal 1-2 emoji per jawaban.
+- Jangan mulai jawaban dengan "Halo!" atau sapaan jika customer tidak menyapa.
+- Jika jawaban panjang, bagi jadi beberapa paragraf pendek yang enak dibaca, BUKAN list.
+- Kata "menu" dalam konteks ini berarti fitur/layanan bot, BUKAN menu makanan/minuman, kecuali bisnis ini memang restoran.`;
 
   const prompt = hasData
-    ? `Kamu adalah asisten customer service untuk bisnis berikut. HANYA jawab pertanyaan yang berkaitan dengan bisnis ini berdasarkan informasi di bawah. Jika pertanyaan customer TIDAK berkaitan dengan bisnis ini, tolak dengan sopan dan arahkan kembali ke topik bisnis ini saja.\n\n${formatRule}\n\nInformasi Bisnis:\n${context}${historyBlock}\nPertanyaan Customer: ${question}\n\nJawab singkat, ramah, dan dalam Bahasa Indonesia.`
-    : `Kamu adalah asisten customer service yang ramah dan membantu. ${formatRule}${historyBlock}\nPertanyaan: ${question}\n\nJawab singkat, ramah, dan dalam Bahasa Indonesia.`;
+    ? `Kamu adalah asisten customer service profesional untuk bisnis berikut. Kamu HANYA boleh menjawab pertanyaan yang berkaitan dengan bisnis ini. Jika customer bertanya hal di luar topik bisnis ini, tolak dengan sopan lalu tawarkan bantuan seputar bisnis ini.\n\n${formatRule}\n\nInformasi Bisnis:\n${context}${historyBlock}\nCustomer: ${question}`
+    : `Kamu adalah asisten customer service profesional yang cerdas dan membantu. Jawab dengan natural dan informatif.\n\n${formatRule}${historyBlock}\nCustomer: ${question}`;
 
   try {
     const answer = await callAIProvider(prompt);
