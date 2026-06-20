@@ -69,11 +69,14 @@ function cleanResponse(text) {
     .replace(/\*{3,}/g, "*")
     .replace(/```[\s\S]*?```/g, (m) => m.replace(/```\w*\n?/g, "").trim())
     .replace(/^[\s]*[-•]\s+/gm, "- ")
-    .replace(/^\d+\.\s+/gm, (m) => m)
     .replace(/\*\*(.+?)\*\*/g, "*$1*")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/\\n/g, "\n")
-    .replace(/^"|"$/g, "")
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/^["']|["']$/g, "")
+    .replace(/[""]/g, '"')
+    .replace(/['']/g, "'")
     .trim();
 }
 
@@ -132,16 +135,15 @@ export async function askBusinessAssistant(question, ownerId = 1, senderId = "")
       "\n";
   }
 
-  const formatRule = `ATURAN FORMAT JAWABAN (WAJIB DIPATUHI):
-- Kamu sedang chatting di WhatsApp, BUKAN menulis artikel atau dokumen.
-- DILARANG KERAS menggunakan heading (#), bullet list (*/-), code block (\`\`\`), atau format markdown apapun.
-- DILARANG menggunakan bold (**) lebih dari 2 kali per jawaban, dan hanya untuk kata kunci penting.
-- Tulis jawaban dalam paragraf pendek (2-3 kalimat per paragraf), pisahkan dengan satu baris kosong.
-- Gunakan bahasa Indonesia sehari-hari yang sopan dan hangat, seperti CS profesional tapi ramah.
-- Jangan gunakan emoji berlebihan, maksimal 1-2 emoji per jawaban.
-- Jangan mulai jawaban dengan "Halo!" atau sapaan jika customer tidak menyapa.
-- Jika jawaban panjang, bagi jadi beberapa paragraf pendek yang enak dibaca, BUKAN list.
-- Kata "menu" dalam konteks ini berarti fitur/layanan bot, BUKAN menu makanan/minuman, kecuali bisnis ini memang restoran.`;
+  const formatRule = `ATURAN WAJIB:
+- Ini chat WhatsApp. Jawab SINGKAT, maksimal 2-3 kalimat saja. Langsung ke inti, jangan bertele-tele.
+- DILARANG: heading (#), code block, bullet list, bold berlebihan, escaped quotes (\\"), karakter aneh.
+- Boleh pakai *bold* WhatsApp HANYA untuk 1-2 kata kunci penting.
+- Bahasa Indonesia kasual tapi sopan. Maksimal 1 emoji per jawaban.
+- Jangan menyapa ("Halo!") kecuali customer menyapa duluan.
+- JANGAN pernah jawab dengan paragraf panjang. Orang Indonesia baca chat, bukan artikel.
+- "Menu" = fitur/layanan bot ini, BUKAN menu makanan, kecuali bisnis ini restoran.
+- Jangan gunakan tanda kutip aneh atau karakter escape dalam jawaban.`;
 
   const prompt = hasData
     ? `Kamu adalah asisten customer service profesional untuk bisnis berikut. Kamu HANYA boleh menjawab pertanyaan yang berkaitan dengan bisnis ini. Jika customer bertanya hal di luar topik bisnis ini, tolak dengan sopan lalu tawarkan bantuan seputar bisnis ini.\n\n${formatRule}\n\nInformasi Bisnis:\n${context}${historyBlock}\nCustomer: ${question}`

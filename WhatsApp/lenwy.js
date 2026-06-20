@@ -378,17 +378,22 @@ export default async (lenwy, m, meta) => {
           folders.sort((a, b) => a.localeCompare(b)).forEach((folder) => {
             text += `*[+] ${folder.toUpperCase()}MENU*\n`;
           });
-          await lenwyreply(`${text}\n☘️ *Lenwy From Scratch*`);
+          await lenwyreply(`${text}`);
           return;
         }
         if (intent && commands.has(intent)) {
           const pluginData = commands.get(intent);
           const { execute, info } = pluginData;
           if (info.enabled !== false && !info.maintenance) {
+            const iLenwyText = (text) => lenwy.sendMessage(replyJid, { text }, { quoted: len });
+            const iLenwyVideo = (url, caption = "") => lenwy.sendMessage(replyJid, { video: { url }, caption }, { quoted: len });
+            const iLenwyImage = (url, caption = "") => lenwy.sendMessage(replyJid, { image: { url }, caption }, { quoted: len });
+            const iLenwyAudio = (url, ptt = false) => lenwy.sendMessage(replyJid, { audio: { url }, mimetype: "audio/mpeg", ptt }, { quoted: len });
+            const iLenwyFile = (url, mimetype, fileName) => lenwy.sendMessage(replyJid, { document: { url }, mimetype, fileName }, { quoted: len });
             await execute({
               command: intent, args: [], q: "", lenwy, m, msg, len,
-              replyJid, senderJid, lenwyreply, LenwyText, LenwyWait: () => lenwyreply(globalThis.mess.wait),
-              LenwyVideo, LenwyImage, LenwyAudio, LenwyFile,
+              replyJid, senderJid, lenwyreply, LenwyText: iLenwyText, LenwyWait: () => lenwyreply(globalThis.mess.wait),
+              LenwyVideo: iLenwyVideo, LenwyImage: iLenwyImage, LenwyAudio: iLenwyAudio, LenwyFile: iLenwyFile,
               isGroup, isAdmin: false, isBotAdmin: false, isPremium: false, isLenwy: false,
               plugins, commands, normalizedSender, deleteMessage, ownerId, botId,
             });
@@ -516,7 +521,7 @@ export default async (lenwy, m, meta) => {
         });
     }
 
-    await lenwyreply(`${text}\n☘️ *Lenwy From Scratch*`);
+    await lenwyreply(`${text}`);
   }
 
   // Category Menu
@@ -536,7 +541,7 @@ export default async (lenwy, m, meta) => {
         text += `*[+] ${folder.toUpperCase()}MENU*\n`;
       });
 
-    await lenwyreply(`${text}\n☘️ *Lenwy From Scratch*`);
+    await lenwyreply(`${text}`);
   }
 
   // Category Menu Dynamic
@@ -576,7 +581,7 @@ export default async (lenwy, m, meta) => {
           });
       });
 
-    await lenwyreply(`${text}\n☘️ *Lenwy From Scratch*`);
+    await lenwyreply(`${text}`);
   }
 
   if (!commands.has(command)) return;
