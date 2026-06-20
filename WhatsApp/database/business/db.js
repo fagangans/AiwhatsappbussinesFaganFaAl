@@ -377,10 +377,14 @@ function repairDanglingForeignKeys() {
 
     let fixedSql = sql;
     for (const { table: refTable } of danglingRefs) {
-      // _customers_old -> customers, _bp_old -> business_profile, dst.
       const target = refTable.startsWith("_bp_old")
         ? "business_profile"
         : refTable.replace(/^_/, "").replace(/_old$/, "");
+      // SQLite wraps renamed identifiers in double quotes: "_customers_old"(id)
+      fixedSql = fixedSql.replace(
+        new RegExp(`"${refTable}"(\\s*\\()`, "g"),
+        `${target}$1`,
+      );
       fixedSql = fixedSql.replace(
         new RegExp(`${refTable}(\\s*\\()`, "g"),
         `${target}$1`,
