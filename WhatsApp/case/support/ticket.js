@@ -21,7 +21,7 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy, m } = leni;
+  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy, m, ownerId, botId } = leni;
   const pushname = m.messages[0].pushName || "Customer";
 
   switch (command) {
@@ -41,7 +41,7 @@ export default async function handler(leni) {
       }
 
       await LenwyWait();
-      const customer = getOrCreateCustomer(normalizedSender, pushname);
+      const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId);
       const parts = q.split("|").map(s => s.trim());
       const subject = parts[0];
       const description = parts[1] || "";
@@ -50,7 +50,7 @@ export default async function handler(leni) {
       const validPriorities = ["low", "medium", "high", "urgent"];
       const finalPriority = validPriorities.includes(priority.toLowerCase()) ? priority.toLowerCase() : "medium";
 
-      const ticket = createTicket(customer.id, subject, description, finalPriority);
+      const ticket = createTicket(customer.id, subject, description, finalPriority, ownerId, botId);
 
       let text = `✅ *TIKET BERHASIL DIBUAT!*\n━━━━━━━━━━━━━━━━━━━━━\n\n`;
       text += `*No. Tiket:* ${ticket.ticket_number}\n`;
@@ -66,7 +66,7 @@ export default async function handler(leni) {
 
     case "cektiket": {
       if (!q) {
-        const customer = getOrCreateCustomer(normalizedSender, pushname);
+        const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId);
         const tickets = getCustomerTickets(customer.id);
 
         if (tickets.length === 0) {
@@ -89,7 +89,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const ticket = getTicket(q.toUpperCase());
+      const ticket = getTicket(q.toUpperCase(), ownerId);
       if (!ticket) {
         await LenwyText(`❌ Tiket ${q.toUpperCase()} tidak ditemukan`);
         return;
@@ -121,8 +121,8 @@ export default async function handler(leni) {
       }
 
       const status = q || null;
-      const tickets = getAllTickets(status, 20);
-      const stats = getTicketStats();
+      const tickets = getAllTickets(status, 20, ownerId, botId);
+      const stats = getTicketStats(ownerId, botId);
 
       if (tickets.length === 0) {
         await LenwyText("🎫 Tidak ada tiket");
@@ -172,7 +172,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const ticket = getTicket(ticketNum);
+      const ticket = getTicket(ticketNum, ownerId);
       if (!ticket) {
         await LenwyText(`❌ Tiket ${ticketNum} tidak ditemukan`);
         return;
@@ -189,14 +189,14 @@ export default async function handler(leni) {
         return;
       }
 
-      const ticket = getTicket(q.toUpperCase());
+      const ticket = getTicket(q.toUpperCase(), ownerId);
       if (!ticket) {
         await LenwyText(`❌ Tiket ${q.toUpperCase()} tidak ditemukan`);
         return;
       }
 
       if (!isLenwy) {
-        const customer = getOrCreateCustomer(normalizedSender, pushname);
+        const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId);
         if (ticket.customer_id !== customer.id) {
           await LenwyText("❌ Anda tidak bisa menutup tiket orang lain");
           return;
@@ -224,13 +224,13 @@ export default async function handler(leni) {
         return;
       }
 
-      const ticket = getTicket(ticketNum);
+      const ticket = getTicket(ticketNum, ownerId);
       if (!ticket) {
         await LenwyText(`❌ Tiket ${ticketNum} tidak ditemukan`);
         return;
       }
 
-      const customer = getOrCreateCustomer(normalizedSender, pushname);
+      const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId);
       addSatisfactionRating(customer.id, rating, feedback, ticket.id);
 
       const stars = "⭐".repeat(rating) + "☆".repeat(5 - rating);

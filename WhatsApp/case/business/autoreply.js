@@ -9,9 +9,9 @@ export function handleAutoReply(lenwy, replyJid, normalizedSender, pushname, bod
   const profile = getProfile(ownerId);
   if (!profile.auto_reply_enabled) return false;
 
-  const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId);
+  const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId);
 
-  logMessage(customer.id, "in", body, "text", ownerId);
+  logMessage(customer.id, "in", body, "text", ownerId, botId);
   updateDailyAnalytics({ messages_in: 1 }, ownerId);
 
   const analysis = analyzeImportantMessage(body);
@@ -27,7 +27,7 @@ export function handleAutoReply(lenwy, replyJid, normalizedSender, pushname, bod
   return false;
 }
 
-export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId = 1) {
+export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId = 1, botId = "") {
   const profile = getProfile(ownerId);
   if (!profile.auto_reply_enabled) return;
 
@@ -66,11 +66,11 @@ export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pu
   text += `• *.menu* - Menu lengkap\n`;
 
   await lenwy.sendMessage(replyJid, { text }, { quoted: len });
-  logMessage(customer.id, "out", text, "text", ownerId);
+  logMessage(customer.id, "out", text, "text", ownerId, botId);
   updateDailyAnalytics({ messages_out: 1 }, ownerId);
 }
 
-export async function handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId = 1) {
+export async function handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId = 1, botId = "") {
   const profile = getProfile(ownerId);
   if (!profile.auto_reply_enabled) return false;
   if (isBusinessOpen()) return false;
@@ -95,6 +95,6 @@ export async function handleAwayMessage(lenwy, replyJid, normalizedSender, pushn
   const text = `⏰ *Di Luar Jam Operasional*\n\n${awayMsg}\n\n_Jam operasional: ${String(profile.open_hour).padStart(2, "0")}:00 - ${String(profile.close_hour).padStart(2, "0")}:00_`;
 
   await lenwy.sendMessage(replyJid, { text }, { quoted: len });
-  logMessage(customer.id, "out", text, "text", ownerId);
+  logMessage(customer.id, "out", text, "text", ownerId, botId);
   return true;
 }

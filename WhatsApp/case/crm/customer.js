@@ -21,13 +21,13 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy } = leni;
+  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy, ownerId, botId } = leni;
 
   switch (command) {
     case "customer":
     case "listcustomer": {
-      const customers = getAllCustomers(20);
-      const total = getCustomerCount();
+      const customers = getAllCustomers(20, 0, ownerId, botId);
+      const total = getCustomerCount(ownerId, botId);
 
       if (customers.length === 0) {
         await LenwyText("👥 Belum ada customer terdaftar");
@@ -54,7 +54,7 @@ export default async function handler(leni) {
         await LenwyText("🔍 Ketik .caricustomer [nama/nomor]");
         return;
       }
-      const results = searchCustomers(q);
+      const results = searchCustomers(q, ownerId, botId);
       if (results.length === 0) {
         await LenwyText(`🔍 Tidak ada customer yang cocok dengan "${q}"`);
         return;
@@ -77,7 +77,7 @@ export default async function handler(leni) {
 
       const phone = q.replace(/[^0-9]/g, "");
       const jid = phone + "@s.whatsapp.net";
-      const customer = getCustomer(jid);
+      const customer = getCustomer(jid, ownerId, botId);
 
       if (!customer) {
         await LenwyText(`❌ Customer dengan nomor ${phone} tidak ditemukan`);
@@ -135,7 +135,7 @@ export default async function handler(leni) {
       }
 
       const jid = phone.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-      const customer = getCustomer(jid);
+      const customer = getCustomer(jid, ownerId, botId);
       if (!customer) {
         await LenwyText("❌ Customer tidak ditemukan");
         return;
@@ -159,7 +159,7 @@ export default async function handler(leni) {
       }
 
       const jid = phone.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-      const customer = getCustomer(jid);
+      const customer = getCustomer(jid, ownerId, botId);
       if (!customer) {
         await LenwyText("❌ Customer tidak ditemukan");
         return;
@@ -176,7 +176,7 @@ export default async function handler(leni) {
         return;
       }
       const jid = q.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-      const customer = getCustomer(jid);
+      const customer = getCustomer(jid, ownerId, botId);
       if (!customer) {
         await LenwyText("❌ Customer tidak ditemukan");
         return;
@@ -192,7 +192,7 @@ export default async function handler(leni) {
         return;
       }
       const jid = q.replace(/[^0-9]/g, "") + "@s.whatsapp.net";
-      const customer = getCustomer(jid);
+      const customer = getCustomer(jid, ownerId, botId);
       if (!customer) {
         await LenwyText("❌ Customer tidak ditemukan");
         return;

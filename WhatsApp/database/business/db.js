@@ -46,6 +46,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS customers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL DEFAULT 1,
+    bot_id TEXT DEFAULT '',
     jid TEXT NOT NULL,
     phone TEXT DEFAULT '',
     name TEXT DEFAULT '',
@@ -82,6 +83,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL DEFAULT 1,
+    bot_id TEXT DEFAULT '',
     order_number TEXT UNIQUE NOT NULL,
     customer_id INTEGER NOT NULL,
     items TEXT NOT NULL DEFAULT '[]',
@@ -102,6 +104,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS tickets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL DEFAULT 1,
+    bot_id TEXT DEFAULT '',
     ticket_number TEXT UNIQUE NOT NULL,
     customer_id INTEGER NOT NULL,
     subject TEXT NOT NULL,
@@ -119,6 +122,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS messages_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL DEFAULT 1,
+    bot_id TEXT DEFAULT '',
     customer_id INTEGER,
     direction TEXT NOT NULL,
     message_type TEXT DEFAULT 'text',
@@ -241,6 +245,15 @@ db.exec(`
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS bot_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bot_id TEXT NOT NULL,
+    client_user_id INTEGER NOT NULL,
+    granted_by INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(bot_id, client_user_id)
+  );
 `);
 
 // === MIGRATION FOR EXISTING INSTALLS ===
@@ -344,6 +357,12 @@ if (needsMigration) {
   console.log("[DB] Migrasi selesai!");
 }
 
+// Tambahkan kolom bot_id untuk pemisahan data per bot (dipakai fitur sharing akses bot ke client)
+addColSafe("customers", "bot_id", "TEXT DEFAULT ''");
+addColSafe("orders", "bot_id", "TEXT DEFAULT ''");
+addColSafe("tickets", "bot_id", "TEXT DEFAULT ''");
+addColSafe("messages_log", "bot_id", "TEXT DEFAULT ''");
+
 // === REPAIR: perbaiki FOREIGN KEY yang nyangkut ke tabel _old hasil migrasi lama ===
 // Dideteksi langsung lewat PRAGMA foreign_key_list (bukan tebak-tebakan pola teks),
 // supaya tidak peduli format spasi/penulisan FK yang berbeda-beda dari versi lama.
@@ -431,6 +450,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_important_read ON important_messages(is_read);
   CREATE INDEX IF NOT EXISTS idx_important_owner ON important_messages(owner_id);
   CREATE INDEX IF NOT EXISTS idx_bots_owner ON bots(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_customers_bot ON customers(bot_id);
+  CREATE INDEX IF NOT EXISTS idx_orders_bot ON orders(bot_id);
+  CREATE INDEX IF NOT EXISTS idx_tickets_bot ON tickets(bot_id);
+  CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages_log(bot_id);
+  CREATE INDEX IF NOT EXISTS idx_bot_access_client ON bot_access(client_user_id);
+  CREATE INDEX IF NOT EXISTS idx_bot_access_bot ON bot_access(bot_id);
 `);
 
 const adminProfile = db.prepare("SELECT COUNT(*) as c FROM business_profile WHERE owner_id = 1").get();
@@ -458,11 +483,11 @@ export function updateProfile(data, ownerId = 1) {
 }
 
 // === CUSTOMERS ===
-export function getOrCreateCustomer(jid, name = "", ownerId = 1) {
+export function getOrCreateCustomer(jid, name = "", ownerId = 1, botId = "") {
   let c = db.prepare("SELECT * FROM customers WHERE jid = ? AND owner_id = ?").get(jid, ownerId);
   if (!c) {
     const phone = jid.split("@")[0];
-    db.prepare("INSERT INTO customers (jid, phone, name, owner_id) VALUES (?, ?, ?, ?)").run(jid, phone, name, ownerId);
+    db.prepare("INSERT INTO customers (jid, phone, name, owner_id, bot_id) VALUES (?, ?, ?, ?, ?)").run(jid, phone, name, ownerId, botId || "");
     c = db.prepare("SELECT * FROM customers WHERE jid = ? AND owner_id = ?").get(jid, ownerId);
   } else if (name && c.name !== name) {
     db.prepare("UPDATE customers SET name = ?, last_contact = datetime('now') WHERE jid = ? AND owner_id = ?").run(name, jid, ownerId);
@@ -473,9 +498,12 @@ export function getOrCreateCustomer(jid, name = "", ownerId = 1) {
   return c;
 }
 
-export function getCustomer(jid, ownerId = null) {
-  if (ownerId) return db.prepare("SELECT * FROM customers WHERE jid = ? AND owner_id = ?").get(jid, ownerId);
-  return db.prepare("SELECT * FROM customers WHERE jid = ?").get(jid);
+export function getCustomer(jid, ownerId = null, botId = null) {
+  let sql = "SELECT * FROM customers WHERE jid = ?";
+  const p = [jid];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND bot_id = ?"; p.push(botId); }
+  return db.prepare(sql).get(...p);
 }
 
 export function updateCustomer(id, data) {
@@ -485,20 +513,31 @@ export function updateCustomer(id, data) {
   return db.prepare(`UPDATE customers SET ${sets} WHERE id = @id`).run(data);
 }
 
-export function getAllCustomers(limit = 100, offset = 0, ownerId = null) {
-  if (ownerId) return db.prepare("SELECT * FROM customers WHERE owner_id = ? ORDER BY last_contact DESC LIMIT ? OFFSET ?").all(ownerId, limit, offset);
-  return db.prepare("SELECT * FROM customers ORDER BY last_contact DESC LIMIT ? OFFSET ?").all(limit, offset);
+export function getAllCustomers(limit = 100, offset = 0, ownerId = null, botId = null) {
+  let sql = "SELECT * FROM customers WHERE 1=1";
+  const p = [];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND bot_id = ?"; p.push(botId); }
+  sql += " ORDER BY last_contact DESC LIMIT ? OFFSET ?";
+  p.push(limit, offset);
+  return db.prepare(sql).all(...p);
 }
 
-export function searchCustomers(query, ownerId = null) {
+export function searchCustomers(query, ownerId = null, botId = null) {
   const q = `%${query}%`;
-  if (ownerId) return db.prepare("SELECT * FROM customers WHERE owner_id = ? AND (name LIKE ? OR phone LIKE ? OR jid LIKE ?)").all(ownerId, q, q, q);
-  return db.prepare("SELECT * FROM customers WHERE name LIKE ? OR phone LIKE ? OR jid LIKE ?").all(q, q, q);
+  let sql = "SELECT * FROM customers WHERE (name LIKE ? OR phone LIKE ? OR jid LIKE ?)";
+  const p = [q, q, q];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND bot_id = ?"; p.push(botId); }
+  return db.prepare(sql).all(...p);
 }
 
-export function getCustomerCount(ownerId = null) {
-  if (ownerId) return db.prepare("SELECT COUNT(*) as count FROM customers WHERE owner_id = ?").get(ownerId).count;
-  return db.prepare("SELECT COUNT(*) as count FROM customers").get().count;
+export function getCustomerCount(ownerId = null, botId = null) {
+  let sql = "SELECT COUNT(*) as count FROM customers WHERE 1=1";
+  const p = [];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND bot_id = ?"; p.push(botId); }
+  return db.prepare(sql).get(...p).count;
 }
 
 // === PRODUCTS ===
@@ -567,17 +606,20 @@ function generateOrderNumber() {
   return `ORD-${y}${m}${day}-${String(count + 1).padStart(4, "0")}`;
 }
 
-export function createOrder(customerId, items, total, notes = "", shippingAddress = "", ownerId = 1) {
+export function createOrder(customerId, items, total, notes = "", shippingAddress = "", ownerId = 1, botId = "") {
   const orderNumber = generateOrderNumber();
   const itemsJson = JSON.stringify(items);
   const subtotal = items.reduce((s, i) => s + (i.price * i.qty), 0);
-  db.prepare("INSERT INTO orders (order_number, customer_id, items, subtotal, total, notes, shipping_address, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(orderNumber, customerId, itemsJson, subtotal, total, notes, shippingAddress, ownerId);
+  db.prepare("INSERT INTO orders (order_number, customer_id, items, subtotal, total, notes, shipping_address, owner_id, bot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(orderNumber, customerId, itemsJson, subtotal, total, notes, shippingAddress, ownerId, botId || "");
   db.prepare("UPDATE customers SET total_orders = total_orders + 1 WHERE id = ?").run(customerId);
   return db.prepare("SELECT * FROM orders WHERE order_number = ?").get(orderNumber);
 }
 
-export function getOrder(orderNumber) {
-  return db.prepare("SELECT o.*, c.name as customer_name, c.jid as customer_jid FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.order_number = ?").get(orderNumber);
+export function getOrder(orderNumber, ownerId = null) {
+  let sql = "SELECT o.*, c.name as customer_name, c.jid as customer_jid FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.order_number = ?";
+  const p = [orderNumber];
+  if (ownerId) { sql += " AND o.owner_id = ?"; p.push(ownerId); }
+  return db.prepare(sql).get(...p);
 }
 
 export function getOrderById(id) {
@@ -592,20 +634,19 @@ export function getCustomerOrders(customerId) {
   return db.prepare("SELECT * FROM orders WHERE customer_id = ? ORDER BY created_at DESC").all(customerId);
 }
 
-export function getAllOrders(status = null, limit = 50, ownerId = null) {
+export function getAllOrders(status = null, limit = 50, ownerId = null, botId = null) {
   let sql = "SELECT o.*, c.name as customer_name, c.jid as customer_jid FROM orders o JOIN customers c ON o.customer_id = c.id WHERE 1=1";
   const p = [];
   if (ownerId) { sql += " AND o.owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND o.bot_id = ?"; p.push(botId); }
   if (status) { sql += " AND o.status = ?"; p.push(status); }
   sql += " ORDER BY o.created_at DESC LIMIT ?";
   p.push(limit);
   return db.prepare(sql).all(...p);
 }
 
-export function getOrderStats(ownerId = null) {
-  const oc = ownerId ? " WHERE owner_id = ?" : "";
-  const p = ownerId ? [ownerId] : [];
-  return db.prepare(`SELECT
+export function getOrderStats(ownerId = null, botId = null) {
+  let sql = "SELECT" + `
     COUNT(*) as total_orders,
     SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
     SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
@@ -614,7 +655,11 @@ export function getOrderStats(ownerId = null) {
     SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
     SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
     SUM(CASE WHEN payment_status = 'paid' THEN total ELSE 0 END) as total_revenue
-  FROM orders${oc}`).get(...p);
+  FROM orders WHERE 1=1`;
+  const p = [];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND bot_id = ?"; p.push(botId); }
+  return db.prepare(sql).get(...p);
 }
 
 // === TICKETS ===
@@ -623,14 +668,17 @@ function generateTicketNumber() {
   return `TKT-${String(count + 1).padStart(5, "0")}`;
 }
 
-export function createTicket(customerId, subject, description = "", priority = "medium", ownerId = 1) {
+export function createTicket(customerId, subject, description = "", priority = "medium", ownerId = 1, botId = "") {
   const ticketNumber = generateTicketNumber();
-  db.prepare("INSERT INTO tickets (ticket_number, customer_id, subject, description, priority, owner_id) VALUES (?, ?, ?, ?, ?, ?)").run(ticketNumber, customerId, subject, description, priority, ownerId);
+  db.prepare("INSERT INTO tickets (ticket_number, customer_id, subject, description, priority, owner_id, bot_id) VALUES (?, ?, ?, ?, ?, ?, ?)").run(ticketNumber, customerId, subject, description, priority, ownerId, botId || "");
   return db.prepare("SELECT * FROM tickets WHERE ticket_number = ?").get(ticketNumber);
 }
 
-export function getTicket(ticketNumber) {
-  return db.prepare("SELECT t.*, c.name as customer_name, c.jid as customer_jid FROM tickets t JOIN customers c ON t.customer_id = c.id WHERE t.ticket_number = ?").get(ticketNumber);
+export function getTicket(ticketNumber, ownerId = null) {
+  let sql = "SELECT t.*, c.name as customer_name, c.jid as customer_jid FROM tickets t JOIN customers c ON t.customer_id = c.id WHERE t.ticket_number = ?";
+  const p = [ticketNumber];
+  if (ownerId) { sql += " AND t.owner_id = ?"; p.push(ownerId); }
+  return db.prepare(sql).get(...p);
 }
 
 export function updateTicketStatus(ticketNumber, status, resolution = "") {
@@ -645,31 +693,34 @@ export function getCustomerTickets(customerId) {
   return db.prepare("SELECT * FROM tickets WHERE customer_id = ? ORDER BY created_at DESC").all(customerId);
 }
 
-export function getAllTickets(status = null, limit = 50, ownerId = null) {
+export function getAllTickets(status = null, limit = 50, ownerId = null, botId = null) {
   let sql = "SELECT t.*, c.name as customer_name FROM tickets t JOIN customers c ON t.customer_id = c.id WHERE 1=1";
   const p = [];
   if (ownerId) { sql += " AND t.owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND t.bot_id = ?"; p.push(botId); }
   if (status) { sql += " AND t.status = ?"; p.push(status); }
   sql += " ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, t.created_at DESC LIMIT ?";
   p.push(limit);
   return db.prepare(sql).all(...p);
 }
 
-export function getTicketStats(ownerId = null) {
-  const oc = ownerId ? " WHERE owner_id = ?" : "";
-  const p = ownerId ? [ownerId] : [];
-  return db.prepare(`SELECT
+export function getTicketStats(ownerId = null, botId = null) {
+  let sql = `SELECT
     COUNT(*) as total,
     SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open_tickets,
     SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
     SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
     SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed
-  FROM tickets${oc}`).get(...p);
+  FROM tickets WHERE 1=1`;
+  const p = [];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (botId) { sql += " AND bot_id = ?"; p.push(botId); }
+  return db.prepare(sql).get(...p);
 }
 
 // === MESSAGES ===
-export function logMessage(customerId, direction, content, messageType = "text", ownerId = 1) {
-  db.prepare("INSERT INTO messages_log (customer_id, direction, message_type, content, owner_id) VALUES (?, ?, ?, ?, ?)").run(customerId, direction, messageType, content, ownerId);
+export function logMessage(customerId, direction, content, messageType = "text", ownerId = 1, botId = "") {
+  db.prepare("INSERT INTO messages_log (customer_id, direction, message_type, content, owner_id, bot_id) VALUES (?, ?, ?, ?, ?, ?)").run(customerId, direction, messageType, content, ownerId, botId || "");
 }
 
 export function getMessageLogs(customerId, limit = 50) {
@@ -806,13 +857,15 @@ export function getAnalytics(days = 30, ownerId = null) {
 }
 
 // === DASHBOARD STATS ===
-export function getDashboardStats(ownerId = null) {
-  const oc = ownerId ? " AND owner_id = ?" : "";
-  const ow = ownerId ? [ownerId] : [];
+export function getDashboardStats(ownerId = null, botId = null) {
+  let oc = "";
+  const ow = [];
+  if (ownerId) { oc += " AND owner_id = ?"; ow.push(ownerId); }
+  if (botId) { oc += " AND bot_id = ?"; ow.push(botId); }
   const customers = db.prepare(`SELECT COUNT(*) as count FROM customers WHERE 1=1${oc}`).get(...ow);
   const todayCustomers = db.prepare(`SELECT COUNT(*) as count FROM customers WHERE date(first_contact) = date('now')${oc}`).get(...ow);
-  const orders = getOrderStats(ownerId);
-  const tickets = getTicketStats(ownerId);
+  const orders = getOrderStats(ownerId, botId);
+  const tickets = getTicketStats(ownerId, botId);
   const todayMessages = db.prepare(`SELECT COUNT(*) as count FROM messages_log WHERE date(timestamp) = date('now')${oc}`).get(...ow);
   const todayRevenue = db.prepare(`SELECT SUM(total) as total FROM orders WHERE date(created_at) = date('now') AND payment_status = 'paid'${oc}`).get(...ow);
   const satisfaction = db.prepare("SELECT AVG(rating) as avg FROM satisfaction_ratings").get();
@@ -930,4 +983,37 @@ export function updateBot(id, data) {
 
 export function deleteBot(id) {
   db.prepare("UPDATE bots SET is_active = 0 WHERE id = ?").run(id);
+}
+
+// === BOT ACCESS (sharing bot read-only ke client) ===
+export function grantBotAccess(botId, clientUserId, grantedBy) {
+  db.prepare("INSERT OR IGNORE INTO bot_access (bot_id, client_user_id, granted_by) VALUES (?, ?, ?)").run(botId, clientUserId, grantedBy);
+  return db.prepare("SELECT * FROM bot_access WHERE bot_id = ? AND client_user_id = ?").get(botId, clientUserId);
+}
+
+export function revokeBotAccess(botId, clientUserId) {
+  return db.prepare("DELETE FROM bot_access WHERE bot_id = ? AND client_user_id = ?").run(botId, clientUserId);
+}
+
+export function getBotAccessForBot(botId) {
+  return db.prepare(`
+    SELECT ba.*, u.username, u.name as client_name
+    FROM bot_access ba JOIN dashboard_users u ON ba.client_user_id = u.id
+    WHERE ba.bot_id = ?
+    ORDER BY ba.created_at DESC
+  `).all(botId);
+}
+
+export function getGrantedBotsForClient(clientUserId) {
+  return db.prepare(`
+    SELECT ba.*, b.name as bot_name, b.phone as bot_phone, b.owner_id as bot_owner_id
+    FROM bot_access ba JOIN bots b ON ba.bot_id = b.id
+    WHERE ba.client_user_id = ?
+    ORDER BY ba.created_at DESC
+  `).all(clientUserId);
+}
+
+export function hasBotAccess(botId, clientUserId) {
+  const row = db.prepare("SELECT id FROM bot_access WHERE bot_id = ? AND client_user_id = ?").get(botId, clientUserId);
+  return !!row;
 }

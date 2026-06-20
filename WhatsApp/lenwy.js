@@ -343,10 +343,10 @@ export default async (lenwy, m, meta) => {
   }
 
   // Welcome Message for New Customers
-  await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
+  await handleWelcomeMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId, botId || "");
 
   // Away Message (Outside Business Hours)
-  await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId);
+  await handleAwayMessage(lenwy, replyJid, normalizedSender, pushname, len, ownerId, botId || "");
 
   let usedPrefix = null;
   for (const pre of globalThis.prefix) {
@@ -592,5 +592,7 @@ export default async (lenwy, m, meta) => {
     commands,
     normalizedSender,
     deleteMessage,
+    ownerId,
+    botId,
   });
 };

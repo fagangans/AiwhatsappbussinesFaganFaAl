@@ -16,12 +16,12 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, isLenwy } = leni;
+  const { command, q, LenwyText, isLenwy, ownerId } = leni;
 
   switch (command) {
     case "faq":
     case "listfaq": {
-      const faqs = getAllFaq();
+      const faqs = getAllFaq(ownerId);
       if (faqs.length === 0) {
         await LenwyText("❓ Belum ada FAQ. Owner bisa tambah dengan .addfaq");
         return;
@@ -43,7 +43,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const results = searchFaq(q);
+      const results = searchFaq(q, ownerId);
       if (results.length === 0) {
         await LenwyText(`❓ Tidak ada FAQ yang cocok dengan "${q}"\n\nSilakan buat tiket support: .buattiket [pertanyaan Anda]`);
         return;
@@ -81,7 +81,7 @@ export default async function handler(leni) {
       }
 
       const keywords = parts[2] ? parts[2].split(",").map(k => k.trim()) : [];
-      addFaq(parts[0], parts[1], keywords, parts[3] || "Umum");
+      addFaq(parts[0], parts[1], keywords, parts[3] || "Umum", ownerId);
       await LenwyText(`✅ FAQ berhasil ditambahkan!\n\nQ: ${parts[0]}\nA: ${parts[1]}`);
       break;
     }

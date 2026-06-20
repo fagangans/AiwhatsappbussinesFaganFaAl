@@ -18,12 +18,12 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, isLenwy } = leni;
+  const { command, q, LenwyText, isLenwy, ownerId } = leni;
 
   switch (command) {
     case "agent":
     case "listagent": {
-      const agents = getAllAgents();
+      const agents = getAllAgents(ownerId);
       if (agents.length === 0) {
         await LenwyText("👨‍💼 Belum ada agent terdaftar. Tambah dengan .addagent");
         return;
@@ -58,7 +58,7 @@ export default async function handler(leni) {
       const name = parts[1];
       const role = parts[2] || "agent";
 
-      const agent = addAgent(jid, name, role);
+      const agent = addAgent(jid, name, role, ownerId);
       await LenwyText(`✅ Agent berhasil ditambahkan!\n\nNama: ${name}\nNomor: ${phone}\nRole: ${role}`);
       break;
     }
@@ -71,7 +71,8 @@ export default async function handler(leni) {
       const phone = q.replace(/[^0-9]/g, "");
       const jid = phone + "@s.whatsapp.net";
       const { default: db } = await import("../../database/business/db.js");
-      db.prepare("DELETE FROM agents WHERE jid = ?").run(jid);
+      if (ownerId) db.prepare("DELETE FROM agents WHERE jid = ? AND owner_id = ?").run(jid, ownerId);
+      else db.prepare("DELETE FROM agents WHERE jid = ?").run(jid);
       await LenwyText(`✅ Agent ${phone} berhasil dihapus`);
       break;
     }
@@ -83,7 +84,7 @@ export default async function handler(leni) {
       }
       const phone = q.replace(/[^0-9]/g, "");
       const jid = phone + "@s.whatsapp.net";
-      updateAgentStatus(jid, true);
+      updateAgentStatus(jid, true, ownerId);
       await LenwyText(`🟢 Agent ${phone} status: Online`);
       break;
     }
@@ -95,7 +96,7 @@ export default async function handler(leni) {
       }
       const phone = q.replace(/[^0-9]/g, "");
       const jid = phone + "@s.whatsapp.net";
-      updateAgentStatus(jid, false);
+      updateAgentStatus(jid, false, ownerId);
       await LenwyText(`🔴 Agent ${phone} status: Offline`);
       break;
     }

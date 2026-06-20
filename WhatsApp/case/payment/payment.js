@@ -20,7 +20,7 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy, m } = leni;
+  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy, m, ownerId } = leni;
   const pushname = m.messages[0].pushName || "Customer";
 
   switch (command) {
@@ -38,7 +38,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const order = getOrder(q.toUpperCase());
+      const order = getOrder(q.toUpperCase(), ownerId);
       if (!order) {
         await LenwyText(`❌ Order ${q.toUpperCase()} tidak ditemukan`);
         return;
@@ -49,7 +49,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const profile = getProfile();
+      const profile = getProfile(ownerId);
       let text = `💳 *INFO PEMBAYARAN*\n━━━━━━━━━━━━━━━━━━━━━\n\n`;
       text += `*No. Order:* ${order.order_number}\n`;
       text += `*Total:* ${formatCurrency(order.total)}\n\n`;
@@ -77,7 +77,7 @@ export default async function handler(leni) {
       const orderNum = parts[0].toUpperCase();
       const method = parts[1] || "transfer";
 
-      const order = getOrder(orderNum);
+      const order = getOrder(orderNum, ownerId);
       if (!order) {
         await LenwyText(`❌ Order ${orderNum} tidak ditemukan`);
         return;
@@ -114,14 +114,17 @@ export default async function handler(leni) {
 
       if (q.toLowerCase() === "all") {
         const { default: db } = await import("../../database/business/db.js");
-        const pending = db.prepare(`
+        let sql = `
           SELECT p.*, o.order_number, o.total as order_total, c.name as customer_name
           FROM payments p
           JOIN orders o ON p.order_id = o.id
           JOIN customers c ON o.customer_id = c.id
           WHERE p.status = 'pending'
-          ORDER BY p.created_at DESC
-        `).all();
+        `;
+        const params = [];
+        if (ownerId) { sql += " AND o.owner_id = ?"; params.push(ownerId); }
+        sql += " ORDER BY p.created_at DESC";
+        const pending = db.prepare(sql).all(...params);
 
         if (pending.length === 0) {
           await LenwyText("💳 Tidak ada pembayaran pending");
@@ -139,7 +142,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const order = getOrder(q.toUpperCase());
+      const order = getOrder(q.toUpperCase(), ownerId);
       if (!order) {
         await LenwyText(`❌ Order ${q.toUpperCase()} tidak ditemukan`);
         return;
@@ -154,7 +157,7 @@ export default async function handler(leni) {
     }
 
     case "infopembayaran": {
-      const profile = getProfile();
+      const profile = getProfile(ownerId);
       let text = `💳 *INFORMASI PEMBAYARAN*\n━━━━━━━━━━━━━━━━━━━━━\n\n`;
       text += `*${profile.name || "Business"}*\n\n`;
       text += `Metode pembayaran yang tersedia:\n`;

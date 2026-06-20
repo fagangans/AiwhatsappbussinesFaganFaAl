@@ -25,6 +25,7 @@ import db, {
   getMessageLogs, getCustomerOrders, getCustomerTickets,
   getAllImportantMessages, markImportantRead, markAllImportantRead, updateImportantNotes, getImportantStats, deleteImportantMessage,
   addBot, getBot, getAllBots, updateBot, deleteBot,
+  grantBotAccess, revokeBotAccess, getBotAccessForBot, getGrantedBotsForClient, hasBotAccess,
 } from "../WhatsApp/database/business/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -66,6 +67,23 @@ function getOwnerId(req) {
 
 function getWriteOwnerId(req) {
   return req.user.id;
+}
+
+// Resolves { ownerId, botId, readOnly } for GET endpoints.
+// Admins keep today's behavior (optional ?ownerId=/?botId= filters, full access).
+// Non-admins can pass ?viewBotId= to view a bot they've been granted read-only access to;
+// this never affects write endpoints, which always use getWriteOwnerId(req).
+function getViewContext(req) {
+  const viewBotId = req.query.viewBotId || null;
+  if (viewBotId && req.user.role !== "admin") {
+    if (!hasBotAccess(viewBotId, req.user.id)) {
+      return { ownerId: req.user.id, botId: null, readOnly: true };
+    }
+    const bot = getBot(viewBotId);
+    if (!bot) return { ownerId: req.user.id, botId: null, readOnly: true };
+    return { ownerId: bot.owner_id, botId: viewBotId, readOnly: true };
+  }
+  return { ownerId: getOwnerId(req), botId: req.query.botId || null, readOnly: req.user.role !== "admin" };
 }
 
 export default function startDashboard() {
@@ -238,14 +256,40 @@ export default function startDashboard() {
     res.json({ success: true });
   });
 
+  // ===== BOT ACCESS (sharing bot read-only ke client) =====
+  app.get("/api/bots/:id/access", auth, adminOnly, (req, res) => {
+    res.json(getBotAccessForBot(req.params.id));
+  });
+
+  app.post("/api/bots/:id/access", auth, adminOnly, (req, res) => {
+    const { clientUserId } = req.body;
+    if (!clientUserId) return res.status(400).json({ error: "clientUserId wajib diisi" });
+    const bot = getBot(req.params.id);
+    if (!bot) return res.status(404).json({ error: "Bot tidak ditemukan" });
+    const client = getDashboardUserById(parseInt(clientUserId));
+    if (!client) return res.status(404).json({ error: "Client tidak ditemukan" });
+    const access = grantBotAccess(req.params.id, parseInt(clientUserId), req.user.id);
+    res.json({ success: true, access });
+  });
+
+  app.delete("/api/bots/:id/access/:clientId", auth, adminOnly, (req, res) => {
+    revokeBotAccess(req.params.id, parseInt(req.params.clientId));
+    res.json({ success: true });
+  });
+
+  app.get("/api/my-bot-access", auth, (req, res) => {
+    res.json(getGrantedBotsForClient(req.user.id));
+  });
+
   // ===== DASHBOARD =====
   app.get("/api/dashboard", auth, (req, res) => {
-    res.json(getDashboardStats(getOwnerId(req)));
+    const ctx = getViewContext(req);
+    res.json(getDashboardStats(ctx.ownerId, ctx.botId));
   });
 
   app.get("/api/analytics", auth, (req, res) => {
     const days = parseInt(req.query.days) || 30;
-    res.json(getAnalytics(days, getOwnerId(req)));
+    res.json(getAnalytics(days, getViewContext(req).ownerId));
   });
 
   // ===== BUSINESS PROFILE =====
@@ -260,7 +304,7 @@ export default function startDashboard() {
 
   // ===== PRODUCTS =====
   app.get("/api/products", auth, (req, res) => {
-    const ownerId = getOwnerId(req);
+    const ownerId = getViewContext(req).ownerId;
     const category = req.query.category || null;
     const search = req.query.search || null;
     if (search) return res.json(searchProducts(search, ownerId));
@@ -268,7 +312,7 @@ export default function startDashboard() {
   });
 
   app.get("/api/products/categories", auth, (req, res) => {
-    res.json(getProductCategories(getOwnerId(req)));
+    res.json(getProductCategories(getViewContext(req).ownerId));
   });
 
   app.get("/api/products/:id", auth, (req, res) => {
@@ -304,20 +348,22 @@ export default function startDashboard() {
 
   // ===== CUSTOMERS =====
   app.get("/api/customers", auth, (req, res) => {
-    const ownerId = getOwnerId(req);
+    const ctx = getViewContext(req);
     const search = req.query.search || null;
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
-    if (search) return res.json(searchCustomers(search, ownerId));
-    res.json(getAllCustomers(limit, offset, ownerId));
+    if (search) return res.json(searchCustomers(search, ctx.ownerId, ctx.botId));
+    res.json(getAllCustomers(limit, offset, ctx.ownerId, ctx.botId));
   });
 
   app.get("/api/customers/count", auth, (req, res) => {
-    res.json({ count: getCustomerCount(getOwnerId(req)) });
+    const ctx = getViewContext(req);
+    res.json({ count: getCustomerCount(ctx.ownerId, ctx.botId) });
   });
 
   app.get("/api/customers/:jid", auth, (req, res) => {
-    const customer = getCustomer(req.params.jid, getOwnerId(req));
+    const ctx = getViewContext(req);
+    const customer = getCustomer(req.params.jid, ctx.ownerId, ctx.botId);
     if (!customer) return res.status(404).json({ error: "Not found" });
     res.json(customer);
   });
@@ -341,22 +387,29 @@ export default function startDashboard() {
 
   // ===== ORDERS =====
   app.get("/api/orders", auth, (req, res) => {
+    const ctx = getViewContext(req);
     const status = req.query.status || null;
     const limit = parseInt(req.query.limit) || 50;
-    res.json(getAllOrders(status, limit, getOwnerId(req)));
+    res.json(getAllOrders(status, limit, ctx.ownerId, ctx.botId));
   });
 
   app.get("/api/orders/stats", auth, (req, res) => {
-    res.json(getOrderStats(getOwnerId(req)));
+    const ctx = getViewContext(req);
+    res.json(getOrderStats(ctx.ownerId, ctx.botId));
   });
 
   app.get("/api/orders/:orderNumber", auth, (req, res) => {
-    const order = getOrder(req.params.orderNumber);
+    const order = getOrder(req.params.orderNumber, getViewContext(req).ownerId);
     if (!order) return res.status(404).json({ error: "Not found" });
     res.json(order);
   });
 
   app.put("/api/orders/:orderNumber/status", auth, (req, res) => {
+    const existing = getOrder(req.params.orderNumber);
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existing.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengubah order milik orang lain" });
+    }
     updateOrderStatus(req.params.orderNumber, req.body.status);
     const waSocket = getSocket(req.body.botId);
     if (waSocket && req.body.notify) {
@@ -373,6 +426,9 @@ export default function startDashboard() {
   app.put("/api/orders/:orderNumber/confirm-payment", auth, (req, res) => {
     const order = getOrder(req.params.orderNumber);
     if (!order) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && order.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengubah order milik orang lain" });
+    }
     confirmPayment(order.id);
     updateOrderStatus(req.params.orderNumber, "confirmed");
     const waSocket = getSocket(req.body?.botId);
@@ -386,21 +442,28 @@ export default function startDashboard() {
 
   // ===== TICKETS =====
   app.get("/api/tickets", auth, (req, res) => {
+    const ctx = getViewContext(req);
     const status = req.query.status || null;
-    res.json(getAllTickets(status, 50, getOwnerId(req)));
+    res.json(getAllTickets(status, 50, ctx.ownerId, ctx.botId));
   });
 
   app.get("/api/tickets/stats", auth, (req, res) => {
-    res.json(getTicketStats(getOwnerId(req)));
+    const ctx = getViewContext(req);
+    res.json(getTicketStats(ctx.ownerId, ctx.botId));
   });
 
   app.get("/api/tickets/:ticketNumber", auth, (req, res) => {
-    const ticket = getTicket(req.params.ticketNumber);
+    const ticket = getTicket(req.params.ticketNumber, getViewContext(req).ownerId);
     if (!ticket) return res.status(404).json({ error: "Not found" });
     res.json(ticket);
   });
 
   app.put("/api/tickets/:ticketNumber/status", auth, (req, res) => {
+    const existingTicket = getTicket(req.params.ticketNumber);
+    if (!existingTicket) return res.status(404).json({ error: "Not found" });
+    if (req.user.role !== "admin" && existingTicket.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengubah tiket milik orang lain" });
+    }
     updateTicketStatus(req.params.ticketNumber, req.body.status, req.body.resolution || "");
     const waSocket = getSocket(req.body.botId);
     if (waSocket && req.body.notify) {
@@ -417,7 +480,7 @@ export default function startDashboard() {
 
   // ===== FAQ =====
   app.get("/api/faq", auth, (req, res) => {
-    res.json(getAllFaq(getOwnerId(req)));
+    res.json(getAllFaq(getViewContext(req).ownerId));
   });
 
   app.post("/api/faq", auth, (req, res) => {
@@ -432,7 +495,7 @@ export default function startDashboard() {
 
   // ===== TEMPLATES =====
   app.get("/api/templates", auth, (req, res) => {
-    res.json(getAllTemplates(getOwnerId(req)));
+    res.json(getAllTemplates(getViewContext(req).ownerId));
   });
 
   app.post("/api/templates", auth, (req, res) => {
@@ -451,7 +514,7 @@ export default function startDashboard() {
 
   // ===== AGENTS =====
   app.get("/api/agents", auth, (req, res) => {
-    res.json(getAllAgents(getOwnerId(req)));
+    res.json(getAllAgents(getViewContext(req).ownerId));
   });
 
   app.post("/api/agents", auth, (req, res) => {
@@ -466,7 +529,7 @@ export default function startDashboard() {
 
   // ===== BROADCASTS =====
   app.get("/api/broadcasts", auth, (req, res) => {
-    res.json(getAllBroadcasts(getOwnerId(req)));
+    res.json(getAllBroadcasts(getViewContext(req).ownerId));
   });
 
   app.post("/api/broadcasts", auth, async (req, res) => {
@@ -512,15 +575,15 @@ export default function startDashboard() {
 
   // ===== IMPORTANT MESSAGES =====
   app.get("/api/important", auth, (req, res) => {
-    const ownerId = getOwnerId(req);
-    const botId = req.query.botId || null;
+    const ctx = getViewContext(req);
+    const botId = ctx.botId || req.query.botId || null;
     const isRead = req.query.unread === "1" ? 0 : null;
     const limit = parseInt(req.query.limit) || 100;
-    res.json(getAllImportantMessages(botId, isRead, limit, ownerId));
+    res.json(getAllImportantMessages(botId, isRead, limit, ctx.ownerId));
   });
 
   app.get("/api/important/stats", auth, (req, res) => {
-    res.json(getImportantStats(getOwnerId(req)));
+    res.json(getImportantStats(getViewContext(req).ownerId));
   });
 
   app.put("/api/important/:id/read", auth, (req, res) => {

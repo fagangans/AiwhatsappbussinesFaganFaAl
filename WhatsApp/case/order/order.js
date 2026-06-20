@@ -21,7 +21,7 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy, m } = leni;
+  const { command, q, LenwyText, LenwyWait, normalizedSender, isLenwy, m, ownerId, botId } = leni;
   const pushname = m.messages[0].pushName || "Customer";
 
   switch (command) {
@@ -42,7 +42,7 @@ export default async function handler(leni) {
       }
 
       await LenwyWait();
-      const customer = getOrCreateCustomer(normalizedSender, pushname);
+      const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId);
       const lines = q.split("\n").filter(l => l.trim());
       const orderItems = [];
       let total = 0;
@@ -61,9 +61,9 @@ export default async function handler(leni) {
           return;
         }
 
-        let product = getProductBySku(query.toUpperCase());
+        let product = getProductBySku(query.toUpperCase(), ownerId);
         if (!product) {
-          const results = searchProducts(query);
+          const results = searchProducts(query, ownerId);
           if (results.length > 0) product = results[0];
         }
 
@@ -88,9 +88,9 @@ export default async function handler(leni) {
         total += price * qty;
       }
 
-      const order = createOrder(customer.id, orderItems, total);
+      const order = createOrder(customer.id, orderItems, total, "", "", ownerId, botId);
 
-      const profile = getProfile();
+      const profile = getProfile(ownerId);
       let text = `✅ *PESANAN BERHASIL DIBUAT!*\n━━━━━━━━━━━━━━━━━━━━━\n\n`;
       text += `*No. Order:* ${order.order_number}\n`;
       text += `*Tanggal:* ${formatDate(order.created_at)}\n\n`;
@@ -109,7 +109,7 @@ export default async function handler(leni) {
     case "cekorder":
     case "cekpesanan": {
       if (!q) {
-        const customer = getOrCreateCustomer(normalizedSender, pushname);
+        const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId);
         const orders = getCustomerOrders(customer.id);
         if (orders.length === 0) {
           await LenwyText("📋 Anda belum memiliki pesanan");
@@ -128,7 +128,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const order = getOrder(q.toUpperCase());
+      const order = getOrder(q.toUpperCase(), ownerId);
       if (!order) {
         await LenwyText(`❌ Order ${q.toUpperCase()} tidak ditemukan`);
         return;
@@ -157,12 +157,12 @@ export default async function handler(leni) {
         await LenwyText("📋 Ketik .invoice [no.order]");
         return;
       }
-      const order = getOrder(q.toUpperCase());
+      const order = getOrder(q.toUpperCase(), ownerId);
       if (!order) {
         await LenwyText(`❌ Order ${q.toUpperCase()} tidak ditemukan`);
         return;
       }
-      const profile = getProfile();
+      const profile = getProfile(ownerId);
       const invoiceText = generateInvoiceText(order, profile);
       await LenwyText(invoiceText);
       break;
@@ -175,13 +175,13 @@ export default async function handler(leni) {
         return;
       }
       const status = q || null;
-      const orders = getAllOrders(status, 20);
+      const orders = getAllOrders(status, 20, ownerId, botId);
       if (orders.length === 0) {
         await LenwyText(status ? `📋 Tidak ada order dengan status "${status}"` : "📋 Belum ada order");
         return;
       }
 
-      const stats = getOrderStats();
+      const stats = getOrderStats(ownerId, botId);
       let text = `📊 *DAFTAR ORDER*\n━━━━━━━━━━━━━━━━━━━━━\n`;
       text += `Total: ${stats.total_orders} | Pending: ${stats.pending} | Proses: ${stats.processing}\n`;
       text += `Revenue: ${formatCurrency(stats.total_revenue)}\n\n`;
@@ -223,7 +223,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const order = getOrder(orderNum.toUpperCase());
+      const order = getOrder(orderNum.toUpperCase(), ownerId);
       if (!order) {
         await LenwyText(`❌ Order ${orderNum.toUpperCase()} tidak ditemukan`);
         return;
@@ -239,7 +239,7 @@ export default async function handler(leni) {
         await LenwyText("❌ Ketik .batalorder [no.order]");
         return;
       }
-      const order = getOrder(q.toUpperCase());
+      const order = getOrder(q.toUpperCase(), ownerId);
       if (!order) {
         await LenwyText(`❌ Order ${q.toUpperCase()} tidak ditemukan`);
         return;

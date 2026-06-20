@@ -20,13 +20,13 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, LenwyWait, isLenwy } = leni;
+  const { command, q, LenwyText, LenwyWait, isLenwy, ownerId } = leni;
 
   switch (command) {
     case "katalog":
     case "daftarharga": {
       const category = q || null;
-      const products = getAllProducts(category);
+      const products = getAllProducts(category, ownerId);
       if (products.length === 0) {
         await LenwyText(category
           ? `📦 Tidak ada produk di kategori "${category}"`
@@ -35,7 +35,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const categories = getProductCategories();
+      const categories = getProductCategories(ownerId);
       let text = `📦 *KATALOG PRODUK*\n━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
       if (!category) {
@@ -69,13 +69,13 @@ export default async function handler(leni) {
         return;
       }
 
-      let product = getProductBySku(q.toUpperCase());
+      let product = getProductBySku(q.toUpperCase(), ownerId);
       if (!product) {
         const id = parseInt(q);
         if (!isNaN(id)) product = getProduct(id);
       }
       if (!product) {
-        const results = searchProducts(q);
+        const results = searchProducts(q, ownerId);
         if (results.length > 0) product = results[0];
       }
 
@@ -106,7 +106,7 @@ export default async function handler(leni) {
         await LenwyText("🔍 Ketik .cariproduk [keyword]");
         return;
       }
-      const results = searchProducts(q);
+      const results = searchProducts(q, ownerId);
       if (results.length === 0) {
         await LenwyText(`🔍 Tidak ada produk yang cocok dengan "${q}"`);
         return;
@@ -122,7 +122,7 @@ export default async function handler(leni) {
     }
 
     case "stok": {
-      const products = getAllProducts();
+      const products = getAllProducts(null, ownerId);
       if (products.length === 0) {
         await LenwyText("📦 Belum ada produk");
         return;
@@ -174,6 +174,7 @@ export default async function handler(leni) {
           category: category || "Umum",
           stock: parseInt(stockStr) || 0,
           image_url: "",
+          owner_id: ownerId,
         });
         await LenwyText(`✅ Produk *${name}* [${sku.toUpperCase()}] berhasil ditambahkan!\n\nHarga: ${formatCurrency(price)}\nStok: ${parseInt(stockStr) || 0}`);
       } catch (e) {
@@ -211,7 +212,7 @@ export default async function handler(leni) {
 
       const [sku, field, ...valueParts] = parts;
       const value = valueParts.join("|").trim();
-      const product = getProductBySku(sku.toUpperCase());
+      const product = getProductBySku(sku.toUpperCase(), ownerId);
       if (!product) {
         await LenwyText(`❌ Produk [${sku.toUpperCase()}] tidak ditemukan`);
         return;
@@ -250,7 +251,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const product = getProductBySku(q.toUpperCase());
+      const product = getProductBySku(q.toUpperCase(), ownerId);
       if (!product) {
         await LenwyText(`❌ Produk [${q.toUpperCase()}] tidak ditemukan`);
         return;

@@ -21,7 +21,7 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText, LenwyWait, lenwy, isLenwy } = leni;
+  const { command, q, LenwyText, LenwyWait, lenwy, isLenwy, ownerId, botId } = leni;
 
   switch (command) {
     case "broadcast":
@@ -53,12 +53,12 @@ export default async function handler(leni) {
 
       let customers;
       if (targetTags.length > 0) {
-        customers = getAllCustomers(1000).filter(c => {
+        customers = getAllCustomers(1000, 0, ownerId, botId).filter(c => {
           const tags = JSON.parse(c.tags || "[]");
           return targetTags.some(t => tags.includes(t));
         });
       } else {
-        customers = getAllCustomers(1000).filter(c => !c.is_blocked);
+        customers = getAllCustomers(1000, 0, ownerId, botId).filter(c => !c.is_blocked);
       }
 
       if (customers.length === 0) {
@@ -66,7 +66,7 @@ export default async function handler(leni) {
         return;
       }
 
-      const bc = createBroadcast(title, message, targetTags);
+      const bc = createBroadcast(title, message, targetTags, ownerId);
 
       let sent = 0;
       let failed = 0;
@@ -88,7 +88,7 @@ export default async function handler(leni) {
     }
 
     case "listbroadcast": {
-      const broadcasts = getAllBroadcasts();
+      const broadcasts = getAllBroadcasts(ownerId);
       if (broadcasts.length === 0) {
         await LenwyText("📢 Belum ada broadcast");
         return;
@@ -107,7 +107,7 @@ export default async function handler(leni) {
     }
 
     case "template": {
-      const templates = getAllTemplates();
+      const templates = getAllTemplates(ownerId);
       if (templates.length === 0) {
         await LenwyText("📝 Belum ada template. Buat dengan .addtemplate");
         return;
@@ -142,7 +142,7 @@ export default async function handler(leni) {
       }
 
       try {
-        addTemplate(parts[0], parts[1], parts[2] || "Umum");
+        addTemplate(parts[0], parts[1], parts[2] || "Umum", [], ownerId);
         await LenwyText(`✅ Template *${parts[0]}* berhasil ditambahkan`);
       } catch (e) {
         if (e.message.includes("UNIQUE")) {
@@ -159,7 +159,7 @@ export default async function handler(leni) {
         await LenwyText("🗑️ Ketik .deltemplate [nama]");
         return;
       }
-      deleteTemplate(q);
+      deleteTemplate(q, ownerId);
       await LenwyText(`✅ Template *${q}* berhasil dihapus`);
       break;
     }
@@ -169,7 +169,7 @@ export default async function handler(leni) {
         await LenwyText("📝 Ketik .gunakantemplate [nama]");
         return;
       }
-      const template = getTemplate(q);
+      const template = getTemplate(q, ownerId);
       if (!template) {
         await LenwyText(`❌ Template "${q}" tidak ditemukan`);
         return;

@@ -20,13 +20,13 @@ export const info = {
 };
 
 export default async function handler(leni) {
-  const { command, q, LenwyText } = leni;
+  const { command, q, LenwyText, ownerId } = leni;
 
   switch (command) {
     case "statistik":
     case "stats": {
-      const stats = getDashboardStats();
-      const products = getAllProducts();
+      const stats = getDashboardStats(ownerId);
+      const products = getAllProducts(null, ownerId);
 
       let text = `📊 *STATISTIK BISNIS*\n━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
@@ -68,7 +68,7 @@ export default async function handler(leni) {
     case "laporan":
     case "report": {
       const days = parseInt(q) || 7;
-      const analytics = getAnalytics(days);
+      const analytics = getAnalytics(days, ownerId);
 
       if (analytics.length === 0) {
         await LenwyText("📊 Belum ada data analytics");
@@ -105,7 +105,7 @@ export default async function handler(leni) {
     }
 
     case "laporanharian": {
-      const stats = getDashboardStats();
+      const stats = getDashboardStats(ownerId);
       let text = `📊 *LAPORAN HARIAN*\n`;
       text += `📅 ${new Date().toLocaleDateString("id-ID", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}\n`;
       text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
@@ -120,7 +120,7 @@ export default async function handler(leni) {
     }
 
     case "laporanmingguan": {
-      const analytics = getAnalytics(7);
+      const analytics = getAnalytics(7, ownerId);
       let totalRevenue = 0;
       let totalOrders = 0;
       let totalNewCust = 0;
