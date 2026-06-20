@@ -5,15 +5,58 @@ let selectedBotId = localStorage.getItem("selectedBotId") || "";
 let connectedBots = [];
 let userRole = localStorage.getItem("userRole") || "";
 let userId = localStorage.getItem("userId") || "";
+let viewBotId = localStorage.getItem("viewBotId") || "";
+let myBotAccess = [];
 
 async function api(path, options = {}) {
-  const res = await fetch(`${API}${path}`, {
+  const method = (options.method || "GET").toUpperCase();
+  let url = `${API}${path}`;
+  if (viewBotId && method === "GET") {
+    url += (url.includes("?") ? "&" : "?") + `viewBotId=${encodeURIComponent(viewBotId)}`;
+  }
+  const res = await fetch(url, {
     ...options,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...options.headers },
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   if (res.status === 401) { logout(); throw new Error("Unauthorized"); }
   return res.json();
+}
+
+// ===== READ-ONLY VIEW MODE (client viewing a bot it was granted access to) =====
+function applyViewMode() {
+  document.body.classList.toggle("view-only", !!viewBotId);
+  const banner = document.getElementById("viewBanner");
+  if (!banner) return;
+  if (viewBotId) {
+    const access = myBotAccess.find(a => a.bot_id === viewBotId);
+    document.getElementById("viewBannerBotName").textContent = access ? access.bot_name : viewBotId;
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+  }
+}
+
+async function loadMyBotAccess() {
+  if (userRole === "admin") return;
+  try { myBotAccess = await api("/api/my-bot-access"); } catch { myBotAccess = []; }
+  const wrap = document.getElementById("viewSwitcherWrap");
+  if (!wrap) return;
+  if (!myBotAccess.length) { wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  const sel = document.getElementById("viewSwitcher");
+  sel.innerHTML = `<option value="">Data Saya</option>` + myBotAccess.map(b => `<option value="${b.bot_id}" ${b.bot_id === viewBotId ? "selected" : ""}>${b.bot_name} (Read-Only)</option>`).join("");
+  applyViewMode();
+}
+
+function onViewSwitch(val) {
+  viewBotId = val;
+  localStorage.setItem("viewBotId", viewBotId);
+  applyViewMode();
+  const sel = document.getElementById("viewSwitcher");
+  if (sel) sel.value = viewBotId;
+  toast(viewBotId ? "Mode lihat data bot diaktifkan (read-only)" : "Kembali ke data Anda sendiri");
+  showPage(currentPage);
 }
 
 function toast(msg, type = "success") {
@@ -113,10 +156,13 @@ function logout() {
   token = null;
   userRole = "";
   userId = "";
+  viewBotId = "";
+  myBotAccess = [];
   localStorage.removeItem("token");
   localStorage.removeItem("userRole");
   localStorage.removeItem("userId");
-  document.body.classList.remove("role-admin");
+  localStorage.removeItem("viewBotId");
+  document.body.classList.remove("role-admin", "view-only");
   document.getElementById("loginPage").classList.remove("hidden");
   document.getElementById("mainApp").classList.add("hidden");
 }
@@ -133,7 +179,9 @@ function showDashboard() {
   document.getElementById("loginPage").classList.add("hidden");
   document.getElementById("mainApp").classList.remove("hidden");
   document.getElementById("currentDate").textContent = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  applyViewMode();
   loadBots();
+  loadMyBotAccess();
   updateImportantBadge();
   setInterval(loadBots, 15000);
   setInterval(updateImportantBadge, 30000);
@@ -257,7 +305,7 @@ async function renderProducts(el) {
         <input type="text" id="productSearch" placeholder="Cari produk..." class="w-64" onkeyup="searchProductDebounce()">
         <select id="productCatFilter" onchange="filterProductsCat()" class="w-40"><option value="">Semua Kategori</option>${categories.map(c=>`<option>${c}</option>`).join("")}</select>
       </div>
-      <button onclick="showAddProduct()" class="btn btn-primary"><i class="fas fa-plus mr-1"></i>Tambah Produk</button>
+      <button onclick="showAddProduct()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Tambah Produk</button>
     </div>
     <div class="card overflow-x-auto">
       <table>
@@ -271,8 +319,8 @@ async function renderProducts(el) {
             <td>${p.discount_price > 0 ? formatCurrency(p.discount_price) : "-"}</td>
             <td><span class="${p.stock <= 0 ? "text-red-500 font-bold" : p.stock <= 5 ? "text-yellow-500 font-bold" : "text-green-600"}">${p.stock}</span></td>
             <td class="space-x-1">
-              <button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-edit"></i></button>
-              <button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button>
+              <button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button>
+              <button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button>
             </td>
           </tr>`).join("")}</tbody>
       </table>
@@ -284,13 +332,13 @@ let searchProductTimer;
 function searchProductDebounce() { clearTimeout(searchProductTimer); searchProductTimer = setTimeout(async () => {
   const q = document.getElementById("productSearch").value;
   const products = q ? await api(`/api/products?search=${encodeURIComponent(q)}`) : await api("/api/products");
-  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${p.sku||"-"}</td><td class="font-medium">${p.name}</td><td>${p.category}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button></td></tr>`).join("");
+  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${p.sku||"-"}</td><td class="font-medium">${p.name}</td><td>${p.category}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td></tr>`).join("");
 }, 300); }
 
 async function filterProductsCat() {
   const cat = document.getElementById("productCatFilter").value;
   const products = cat ? await api(`/api/products?category=${encodeURIComponent(cat)}`) : await api("/api/products");
-  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${p.sku||"-"}</td><td class="font-medium">${p.name}</td><td>${p.category}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button></td></tr>`).join("");
+  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${p.sku||"-"}</td><td class="font-medium">${p.name}</td><td>${p.category}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td></tr>`).join("");
 }
 
 function showAddProduct() {
@@ -377,8 +425,8 @@ async function renderOrders(el) {
           <td class="text-xs text-gray-500">${formatDate(o.created_at)}</td>
           <td class="space-x-1">
             <button onclick="viewOrder('${o.order_number}')" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button>
-            <button onclick="changeOrderStatus('${o.order_number}','${o.status}')" class="btn btn-primary text-xs py-1 px-2"><i class="fas fa-edit"></i></button>
-            ${o.payment_status !== "paid" ? `<button onclick="confirmPay('${o.order_number}')" class="btn btn-success text-xs py-1 px-2" title="Konfirmasi bayar"><i class="fas fa-check"></i></button>` : ""}
+            <button onclick="changeOrderStatus('${o.order_number}','${o.status}')" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button>
+            ${o.payment_status !== "paid" ? `<button onclick="confirmPay('${o.order_number}')" class="btn btn-success text-xs py-1 px-2 write-action" title="Konfirmasi bayar"><i class="fas fa-check"></i></button>` : ""}
           </td>
         </tr>`).join("")}</tbody>
       </table>
@@ -386,7 +434,7 @@ async function renderOrders(el) {
     </div>`;
 }
 
-async function filterOrders() { const s = document.getElementById("orderFilter").value; const orders = await api(`/api/orders${s?"?status="+s:""}`); document.getElementById("ordersTable").innerHTML = orders.map(o => `<tr><td class="font-mono text-xs font-medium">${o.order_number}</td><td>${o.customer_name}</td><td class="font-medium">${formatCurrency(o.total)}</td><td>${statusBadge(o.status)}</td><td>${statusBadge(o.payment_status)}</td><td class="text-xs text-gray-500">${formatDate(o.created_at)}</td><td class="space-x-1"><button onclick="viewOrder('${o.order_number}')" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button><button onclick="changeOrderStatus('${o.order_number}','${o.status}')" class="btn btn-primary text-xs py-1 px-2"><i class="fas fa-edit"></i></button>${o.payment_status!=="paid"?`<button onclick="confirmPay('${o.order_number}')" class="btn btn-success text-xs py-1 px-2"><i class="fas fa-check"></i></button>`:""}</td></tr>`).join(""); }
+async function filterOrders() { const s = document.getElementById("orderFilter").value; const orders = await api(`/api/orders${s?"?status="+s:""}`); document.getElementById("ordersTable").innerHTML = orders.map(o => `<tr><td class="font-mono text-xs font-medium">${o.order_number}</td><td>${o.customer_name}</td><td class="font-medium">${formatCurrency(o.total)}</td><td>${statusBadge(o.status)}</td><td>${statusBadge(o.payment_status)}</td><td class="text-xs text-gray-500">${formatDate(o.created_at)}</td><td class="space-x-1"><button onclick="viewOrder('${o.order_number}')" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button><button onclick="changeOrderStatus('${o.order_number}','${o.status}')" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button>${o.payment_status!=="paid"?`<button onclick="confirmPay('${o.order_number}')" class="btn btn-success text-xs py-1 px-2 write-action"><i class="fas fa-check"></i></button>`:""}</td></tr>`).join(""); }
 
 async function viewOrder(num) {
   const o = await api(`/api/orders/${num}`);
@@ -469,7 +517,7 @@ async function viewCustomer(id, jid) {
       ${orders.length > 0 ? `<h4 class="font-bold mt-3">Order Terakhir:</h4><ul class="list-disc pl-4">${orders.slice(0,5).map(o=>`<li>${o.order_number} - ${formatCurrency(o.total)} (${o.status})</li>`).join("")}</ul>` : ""}
     </div>
     <div class="flex gap-2 justify-end mt-4">
-      <button onclick="sendMsgToCustomer('${c.jid}')" class="btn btn-success text-xs"><i class="fas fa-paper-plane mr-1"></i>Kirim Pesan</button>
+      <button onclick="sendMsgToCustomer('${c.jid}')" class="btn btn-success text-xs write-action"><i class="fas fa-paper-plane mr-1"></i>Kirim Pesan</button>
       <button onclick="closeModal()" class="btn btn-outline">Tutup</button>
     </div>`);
 }
@@ -506,14 +554,14 @@ async function renderTickets(el) {
           <td><span class="badge ${t.priority==="urgent"?"badge-red":t.priority==="high"?"badge-yellow":"badge-gray"}">${t.priority}</span></td>
           <td>${statusBadge(t.status)}</td>
           <td class="text-xs text-gray-500">${formatDate(t.created_at)}</td>
-          <td><button onclick="updateTicket('${t.ticket_number}','${t.status}')" class="btn btn-primary text-xs py-1 px-2"><i class="fas fa-edit"></i></button></td>
+          <td><button onclick="updateTicket('${t.ticket_number}','${t.status}')" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button></td>
         </tr>`).join("")}</tbody>
       </table>
       ${tickets.length === 0 ? '<p class="text-center py-8 text-gray-400">Tidak ada tiket</p>' : ""}
     </div>`;
 }
 
-async function filterTickets() { const s = document.getElementById("ticketFilter").value; const tickets = await api(`/api/tickets${s?"?status="+s:""}`); document.getElementById("ticketsTable").innerHTML = tickets.map(t=>`<tr><td class="font-mono text-xs">${t.ticket_number}</td><td>${t.customer_name}</td><td class="font-medium">${t.subject}</td><td><span class="badge ${t.priority==="urgent"?"badge-red":t.priority==="high"?"badge-yellow":"badge-gray"}">${t.priority}</span></td><td>${statusBadge(t.status)}</td><td class="text-xs text-gray-500">${formatDate(t.created_at)}</td><td><button onclick="updateTicket('${t.ticket_number}','${t.status}')" class="btn btn-primary text-xs py-1 px-2"><i class="fas fa-edit"></i></button></td></tr>`).join(""); }
+async function filterTickets() { const s = document.getElementById("ticketFilter").value; const tickets = await api(`/api/tickets${s?"?status="+s:""}`); document.getElementById("ticketsTable").innerHTML = tickets.map(t=>`<tr><td class="font-mono text-xs">${t.ticket_number}</td><td>${t.customer_name}</td><td class="font-medium">${t.subject}</td><td><span class="badge ${t.priority==="urgent"?"badge-red":t.priority==="high"?"badge-yellow":"badge-gray"}">${t.priority}</span></td><td>${statusBadge(t.status)}</td><td class="text-xs text-gray-500">${formatDate(t.created_at)}</td><td><button onclick="updateTicket('${t.ticket_number}','${t.status}')" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button></td></tr>`).join(""); }
 
 function updateTicket(num, current) {
   showModal(`
@@ -530,12 +578,12 @@ async function doUpdateTicket(num) { await api(`/api/tickets/${num}/status`, { m
 async function renderFaq(el) {
   const faqs = await api("/api/faq");
   el.innerHTML = `
-    <div class="flex justify-end mb-4"><button onclick="showAddFaq()" class="btn btn-primary"><i class="fas fa-plus mr-1"></i>Tambah FAQ</button></div>
+    <div class="flex justify-end mb-4"><button onclick="showAddFaq()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Tambah FAQ</button></div>
     <div class="space-y-3" id="faqList">${faqs.map(f => `
       <div class="card p-4">
         <div class="flex justify-between items-start">
           <div><p class="font-bold text-gray-800">${f.question}</p><p class="text-sm text-gray-600 mt-1">${f.answer}</p><p class="text-xs text-gray-400 mt-2">Kategori: ${f.category} | Dilihat: ${f.hit_count}x</p></div>
-          <button onclick="delFaq(${f.id})" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button>
+          <button onclick="delFaq(${f.id})" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button>
         </div>
       </div>`).join("")}
       ${faqs.length === 0 ? '<div class="text-center py-8 text-gray-400">Belum ada FAQ</div>' : ""}
@@ -562,12 +610,12 @@ async function delFaq(id) { if (!confirm("Hapus FAQ ini?")) return; await api(`/
 async function renderTemplates(el) {
   const templates = await api("/api/templates");
   el.innerHTML = `
-    <div class="flex justify-end mb-4"><button onclick="showAddTemplate()" class="btn btn-primary"><i class="fas fa-plus mr-1"></i>Tambah Template</button></div>
+    <div class="flex justify-end mb-4"><button onclick="showAddTemplate()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Tambah Template</button></div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">${templates.map(t => `
       <div class="card p-4">
         <div class="flex justify-between items-start mb-2">
           <div><h4 class="font-bold">${t.name}</h4><span class="badge badge-blue">${t.category}</span></div>
-          <button onclick="delTpl('${t.name}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button>
+          <button onclick="delTpl('${t.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button>
         </div>
         <p class="text-sm text-gray-600 bg-gray-50 p-2 rounded">${t.content}</p>
       </div>`).join("")}
@@ -594,7 +642,7 @@ async function delTpl(name) { if (!confirm(`Hapus template "${name}"?`)) return;
 async function renderBroadcast(el) {
   const broadcasts = await api("/api/broadcasts");
   el.innerHTML = `
-    <div class="flex justify-end mb-4"><button onclick="showNewBroadcast()" class="btn btn-primary"><i class="fas fa-bullhorn mr-1"></i>Buat Broadcast</button></div>
+    <div class="flex justify-end mb-4"><button onclick="showNewBroadcast()" class="btn btn-primary write-action"><i class="fas fa-bullhorn mr-1"></i>Buat Broadcast</button></div>
     <div class="card overflow-x-auto">
       <table>
         <thead><tr><th>Judul</th><th>Target</th><th>Terkirim</th><th>Status</th><th>Tanggal</th></tr></thead>
@@ -628,7 +676,7 @@ async function doBroadcast() { const t = document.getElementById("bcTitle").valu
 async function renderAgents(el) {
   const agents = await api("/api/agents");
   el.innerHTML = `
-    <div class="flex justify-end mb-4"><button onclick="showAddAgent()" class="btn btn-primary"><i class="fas fa-plus mr-1"></i>Tambah Agent</button></div>
+    <div class="flex justify-end mb-4"><button onclick="showAddAgent()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Tambah Agent</button></div>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">${agents.map(a => `
       <div class="card p-5">
         <div class="flex items-center gap-3 mb-3">
@@ -647,7 +695,7 @@ async function renderAgents(el) {
           <p>Rating: ${a.rating_avg ? a.rating_avg.toFixed(1)+"⭐" : "-"}</p>
         </div>
         <div class="flex gap-2 mt-3">
-          <button onclick="toggleAgent('${a.jid}',${a.is_online?0:1})" class="btn ${a.is_online?"btn-warning":"btn-success"} text-xs flex-1">${a.is_online?"Set Offline":"Set Online"}</button>
+          <button onclick="toggleAgent('${a.jid}',${a.is_online?0:1})" class="btn ${a.is_online?"btn-warning":"btn-success"} text-xs flex-1 write-action">${a.is_online?"Set Offline":"Set Online"}</button>
         </div>
       </div>`).join("")}
       ${agents.length === 0 ? '<div class="text-center py-8 text-gray-400 col-span-3">Belum ada agent</div>' : ""}
@@ -716,7 +764,7 @@ async function renderImportant(el) {
       <div class="flex justify-between items-center p-4 border-b">
         <h3 class="font-bold">Pesan Penting dari Customer</h3>
         <div class="flex gap-2">
-          <button onclick="markAllRead()" class="btn btn-outline text-sm"><i class="fas fa-check-double mr-1"></i>Tandai Semua Dibaca</button>
+          <button onclick="markAllRead()" class="btn btn-outline text-sm write-action"><i class="fas fa-check-double mr-1"></i>Tandai Semua Dibaca</button>
           <button onclick="exportImportant()" class="btn btn-primary text-sm"><i class="fas fa-download mr-1"></i>Export CSV</button>
         </div>
       </div>
@@ -733,10 +781,10 @@ async function renderImportant(el) {
             <td><span class="badge ${priorityBadge(m.priority)}">${m.priority}</span></td>
             <td>${m.is_read ? '<span class="text-green-500 text-xs"><i class="fas fa-check"></i> Dibaca</span>' : '<span class="text-red-500 text-xs"><i class="fas fa-circle"></i> Baru</span>'}</td>
             <td class="flex gap-1">
-              ${m.is_read ? "" : `<button onclick="markRead(${m.id})" class="btn btn-outline text-xs" title="Tandai dibaca"><i class="fas fa-check"></i></button>`}
-              <button onclick="addNote(${m.id}, '${m.notes.replace(/'/g, "\\'")}')" class="btn btn-outline text-xs" title="Catatan"><i class="fas fa-sticky-note"></i></button>
-              <button onclick="replyImportant('${m.customer_jid}')" class="btn btn-outline text-xs" title="Balas"><i class="fas fa-reply"></i></button>
-              <button onclick="deleteImportant(${m.id})" class="btn btn-danger text-xs" title="Hapus"><i class="fas fa-trash"></i></button>
+              ${m.is_read ? "" : `<button onclick="markRead(${m.id})" class="btn btn-outline text-xs write-action" title="Tandai dibaca"><i class="fas fa-check"></i></button>`}
+              <button onclick="addNote(${m.id}, '${m.notes.replace(/'/g, "\\'")}')" class="btn btn-outline text-xs write-action" title="Catatan"><i class="fas fa-sticky-note"></i></button>
+              <button onclick="replyImportant('${m.customer_jid}')" class="btn btn-outline text-xs write-action" title="Balas"><i class="fas fa-reply"></i></button>
+              <button onclick="deleteImportant(${m.id})" class="btn btn-danger text-xs write-action" title="Hapus"><i class="fas fa-trash"></i></button>
             </td>
           </tr>`).join("")}
         </tbody>
@@ -909,7 +957,8 @@ async function renderBotManager(el) {
             <p>ID: <span class="font-mono text-xs">${b.id}</span></p>
             <p>Dibuat: ${formatDate(b.created_at)}</p>
           </div>
-          <div class="mt-3">
+          <div class="mt-3 space-y-2">
+            ${userRole === "admin" ? `<button onclick="manageBotAccess('${b.id}','${b.name}')" class="btn btn-outline text-xs w-full"><i class="fas fa-share-alt mr-1"></i>Kelola Akses Client</button>` : ""}
             <button onclick="deleteBot('${b.id}','${b.name}')" class="btn btn-danger text-xs w-full"><i class="fas fa-trash mr-1"></i>Hapus Bot</button>
           </div>
         </div>`).join("")}
@@ -985,6 +1034,39 @@ async function deleteBot(id, name) {
     loadBots();
     showPage("botmanager");
   } catch (e) { toast("Gagal menghapus: " + e.message, "error"); }
+}
+
+// ===== BOT ACCESS SHARING (ADMIN ONLY) =====
+async function manageBotAccess(botId, botName) {
+  const [access, clients] = await Promise.all([
+    api(`/api/bots/${botId}/access`),
+    api("/api/clients"),
+  ]);
+  const clientList = clients.filter(c => c.role !== "admin");
+  const grantedIds = new Set(access.map(a => a.client_user_id));
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-share-alt mr-2 text-purple-500"></i>Kelola Akses: ${botName}</h3>
+    <p class="text-xs text-gray-500 mb-3">Client yang dicentang bisa melihat data bot ini (read-only), tanpa bisa mengubah apapun.</p>
+    <div class="space-y-2 max-h-72 overflow-y-auto" id="accessList">
+      ${clientList.length === 0 ? '<p class="text-sm text-gray-400">Belum ada akun client. Buat dulu di menu Kelola Client.</p>' : clientList.map(c => `
+        <label class="flex items-center gap-2 text-sm border rounded-lg p-2">
+          <input type="checkbox" ${grantedIds.has(c.id) ? "checked" : ""} onchange="toggleBotAccess('${botId}', ${c.id}, this.checked)">
+          <span class="font-medium">${c.name}</span><span class="text-gray-400">(${c.username})</span>
+        </label>`).join("")}
+    </div>
+    <div class="flex justify-end mt-4"><button onclick="closeModal()" class="btn btn-outline">Tutup</button></div>`);
+}
+
+async function toggleBotAccess(botId, clientUserId, granted) {
+  try {
+    if (granted) {
+      await api(`/api/bots/${botId}/access`, { method: "POST", body: { clientUserId } });
+      toast("Akses diberikan");
+    } else {
+      await api(`/api/bots/${botId}/access/${clientUserId}`, { method: "DELETE" });
+      toast("Akses dicabut");
+    }
+  } catch (e) { toast(e.message, "error"); }
 }
 
 // ===== CLIENT MANAGEMENT (ADMIN ONLY) =====
