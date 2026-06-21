@@ -254,6 +254,35 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(bot_id, client_user_id)
   );
+
+  CREATE TABLE IF NOT EXISTS product_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    variant_name TEXT NOT NULL,
+    sku TEXT,
+    price_adjustment REAL DEFAULT 0,
+    stock INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS vouchers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    code TEXT NOT NULL,
+    discount_type TEXT DEFAULT 'percentage',
+    discount_value REAL NOT NULL DEFAULT 0,
+    min_order REAL DEFAULT 0,
+    max_discount REAL DEFAULT 0,
+    usage_limit INTEGER DEFAULT 0,
+    used_count INTEGER DEFAULT 0,
+    valid_from TEXT DEFAULT (datetime('now')),
+    valid_until TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(code, owner_id)
+  );
 `);
 
 // === MIGRATION FOR EXISTING INSTALLS ===
@@ -456,6 +485,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_bot ON messages_log(bot_id);
   CREATE INDEX IF NOT EXISTS idx_bot_access_client ON bot_access(client_user_id);
   CREATE INDEX IF NOT EXISTS idx_bot_access_bot ON bot_access(bot_id);
+  CREATE INDEX IF NOT EXISTS idx_variants_product ON product_variants(product_id);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_owner ON vouchers(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
 `);
 
 const adminProfile = db.prepare("SELECT COUNT(*) as c FROM business_profile WHERE owner_id = 1").get();
@@ -612,7 +644,29 @@ export function createOrder(customerId, items, total, notes = "", shippingAddres
   const subtotal = items.reduce((s, i) => s + (i.price * i.qty), 0);
   db.prepare("INSERT INTO orders (order_number, customer_id, items, subtotal, total, notes, shipping_address, owner_id, bot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(orderNumber, customerId, itemsJson, subtotal, total, notes, shippingAddress, ownerId, botId || "");
   db.prepare("UPDATE customers SET total_orders = total_orders + 1 WHERE id = ?").run(customerId);
+  for (const item of items) {
+    if (item.product_id) {
+      db.prepare("UPDATE products SET stock = MAX(stock - ?, 0), updated_at = datetime('now') WHERE id = ?").run(item.qty, item.product_id);
+      if (item.variant_id) {
+        db.prepare("UPDATE product_variants SET stock = MAX(stock - ?, 0) WHERE id = ?").run(item.qty, item.variant_id);
+      }
+    }
+  }
   return db.prepare("SELECT * FROM orders WHERE order_number = ?").get(orderNumber);
+}
+
+export function restoreStockForOrder(orderNumber) {
+  const order = db.prepare("SELECT * FROM orders WHERE order_number = ?").get(orderNumber);
+  if (!order) return;
+  const items = JSON.parse(order.items || "[]");
+  for (const item of items) {
+    if (item.product_id) {
+      db.prepare("UPDATE products SET stock = stock + ?, updated_at = datetime('now') WHERE id = ?").run(item.qty, item.product_id);
+      if (item.variant_id) {
+        db.prepare("UPDATE product_variants SET stock = stock + ? WHERE id = ?").run(item.qty, item.variant_id);
+      }
+    }
+  }
 }
 
 export function getOrder(orderNumber, ownerId = null) {
@@ -627,6 +681,10 @@ export function getOrderById(id) {
 }
 
 export function updateOrderStatus(orderNumber, status) {
+  const prev = db.prepare("SELECT status FROM orders WHERE order_number = ?").get(orderNumber);
+  if (prev && prev.status !== "cancelled" && status === "cancelled") {
+    restoreStockForOrder(orderNumber);
+  }
   return db.prepare("UPDATE orders SET status = ?, updated_at = datetime('now') WHERE order_number = ?").run(status, orderNumber);
 }
 
@@ -1016,4 +1074,110 @@ export function getGrantedBotsForClient(clientUserId) {
 export function hasBotAccess(botId, clientUserId) {
   const row = db.prepare("SELECT id FROM bot_access WHERE bot_id = ? AND client_user_id = ?").get(botId, clientUserId);
   return !!row;
+}
+
+// === PRODUCT VARIANTS ===
+export function addVariant(productId, variantName, sku = null, priceAdjustment = 0, stock = 0) {
+  db.prepare("INSERT INTO product_variants (product_id, variant_name, sku, price_adjustment, stock) VALUES (?, ?, ?, ?, ?)").run(productId, variantName, sku, priceAdjustment, stock);
+  return db.prepare("SELECT * FROM product_variants WHERE product_id = ? AND variant_name = ?").get(productId, variantName);
+}
+
+export function getVariants(productId) {
+  return db.prepare("SELECT * FROM product_variants WHERE product_id = ? AND is_active = 1 ORDER BY variant_name").all(productId);
+}
+
+export function updateVariant(id, data) {
+  const fields = Object.keys(data).filter(k => k !== "id");
+  if (fields.length === 0) return;
+  const sets = fields.map(f => `${f} = @${f}`).join(", ");
+  data.id = id;
+  db.prepare(`UPDATE product_variants SET ${sets} WHERE id = @id`).run(data);
+}
+
+export function deleteVariant(id) {
+  db.prepare("UPDATE product_variants SET is_active = 0 WHERE id = ?").run(id);
+}
+
+export function getVariantById(id) {
+  return db.prepare("SELECT * FROM product_variants WHERE id = ? AND is_active = 1").get(id);
+}
+
+// === VOUCHERS ===
+export function createVoucher(data) {
+  const params = {
+    code: data.code.toUpperCase(),
+    discount_type: data.discount_type || "percentage",
+    discount_value: data.discount_value || 0,
+    min_order: data.min_order || 0,
+    max_discount: data.max_discount || 0,
+    usage_limit: data.usage_limit || 0,
+    valid_until: data.valid_until || null,
+    owner_id: data.owner_id || 1,
+  };
+  db.prepare("INSERT INTO vouchers (code, discount_type, discount_value, min_order, max_discount, usage_limit, valid_until, owner_id) VALUES (@code, @discount_type, @discount_value, @min_order, @max_discount, @usage_limit, @valid_until, @owner_id)").run(params);
+  return db.prepare("SELECT * FROM vouchers WHERE code = @code AND owner_id = @owner_id").get(params);
+}
+
+export function validateVoucher(code, orderTotal, ownerId = null) {
+  let sql = "SELECT * FROM vouchers WHERE code = ? AND is_active = 1";
+  const p = [code.toUpperCase()];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  const v = db.prepare(sql).get(...p);
+  if (!v) return { valid: false, reason: "Kode voucher tidak ditemukan." };
+  if (v.valid_until && new Date(v.valid_until) < new Date()) return { valid: false, reason: "Voucher sudah kedaluwarsa." };
+  if (v.usage_limit > 0 && v.used_count >= v.usage_limit) return { valid: false, reason: "Voucher sudah habis dipakai." };
+  if (v.min_order > 0 && orderTotal < v.min_order) return { valid: false, reason: `Minimum order ${v.min_order} untuk voucher ini.` };
+  let discount = 0;
+  if (v.discount_type === "percentage") {
+    discount = orderTotal * (v.discount_value / 100);
+    if (v.max_discount > 0) discount = Math.min(discount, v.max_discount);
+  } else {
+    discount = v.discount_value;
+  }
+  discount = Math.min(discount, orderTotal);
+  return { valid: true, voucher: v, discount };
+}
+
+export function useVoucher(code, ownerId = null) {
+  let sql = "UPDATE vouchers SET used_count = used_count + 1 WHERE code = ?";
+  const p = [code.toUpperCase()];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  db.prepare(sql).run(...p);
+}
+
+export function getAllVouchers(ownerId = null) {
+  if (ownerId) return db.prepare("SELECT * FROM vouchers WHERE owner_id = ? ORDER BY created_at DESC").all(ownerId);
+  return db.prepare("SELECT * FROM vouchers ORDER BY created_at DESC").all();
+}
+
+export function deleteVoucher(id) {
+  db.prepare("UPDATE vouchers SET is_active = 0 WHERE id = ?").run(id);
+}
+
+// === LOW STOCK ===
+export function getLowStockProducts(threshold = 5, ownerId = null) {
+  let sql = "SELECT * FROM products WHERE is_active = 1 AND stock <= ? AND stock >= 0";
+  const p = [threshold];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  sql += " ORDER BY stock ASC";
+  return db.prepare(sql).all(...p);
+}
+
+// === ORDER QUERIES FOR NOTIFICATIONS ===
+export function getUnpaidOrdersOlderThan(hours = 24, ownerId = null) {
+  let sql = "SELECT o.*, c.jid as customer_jid, c.name as customer_name FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.payment_status = 'unpaid' AND o.status = 'pending' AND datetime(o.created_at, '+' || ? || ' hours') <= datetime('now')";
+  const p = [hours];
+  if (ownerId) { sql += " AND o.owner_id = ?"; p.push(ownerId); }
+  return db.prepare(sql).all(...p);
+}
+
+export function getDeliveredOrdersForFollowup(ownerId = null) {
+  let sql = "SELECT o.*, c.jid as customer_jid, c.name as customer_name FROM orders o JOIN customers c ON o.customer_id = c.id WHERE o.status = 'delivered' AND o.notes NOT LIKE '%[followup_sent]%' AND datetime(o.updated_at, '+2 hours') <= datetime('now')";
+  const p = [];
+  if (ownerId) { sql += " AND o.owner_id = ?"; p.push(ownerId); }
+  return db.prepare(sql).all(...p);
+}
+
+export function markFollowupSent(orderNumber) {
+  db.prepare("UPDATE orders SET notes = notes || ' [followup_sent]' WHERE order_number = ?").run(orderNumber);
 }

@@ -26,6 +26,9 @@ import db, {
   getAllImportantMessages, markImportantRead, markAllImportantRead, updateImportantNotes, getImportantStats, deleteImportantMessage,
   addBot, getBot, getAllBots, updateBot, deleteBot,
   grantBotAccess, revokeBotAccess, getBotAccessForBot, getGrantedBotsForClient, hasBotAccess,
+  addVariant, getVariants, updateVariant, deleteVariant,
+  createVoucher, getAllVouchers, deleteVoucher, validateVoucher,
+  getLowStockProducts,
 } from "../WhatsApp/database/business/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -345,6 +348,11 @@ export default function startDashboard() {
   });
 
   // ===== PRODUCTS =====
+  app.get("/api/products/low-stock", auth, (req, res) => {
+    const threshold = parseInt(req.query.threshold) || 5;
+    res.json(getLowStockProducts(threshold, getViewContext(req).ownerId));
+  });
+
   app.get("/api/products", auth, (req, res) => {
     const ownerId = getViewContext(req).ownerId;
     const category = req.query.category || null;
@@ -684,6 +692,132 @@ export default function startDashboard() {
     }
     deleteImportantMessage(parseInt(req.params.id));
     res.json({ success: true });
+  });
+
+  // ===== PRODUCT VARIANTS =====
+  app.get("/api/products/:id/variants", auth, (req, res) => {
+    res.json(getVariants(parseInt(req.params.id)));
+  });
+
+  app.post("/api/products/:id/variants", auth, (req, res) => {
+    const product = getProduct(parseInt(req.params.id));
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    if (req.user.role !== "admin" && product.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    try {
+      const v = addVariant(product.id, req.body.variant_name, req.body.sku || null, req.body.price_adjustment || 0, req.body.stock || 0);
+      res.json({ success: true, variant: v });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/variants/:id", auth, (req, res) => {
+    try {
+      updateVariant(parseInt(req.params.id), req.body);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/variants/:id", auth, (req, res) => {
+    deleteVariant(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  // ===== VOUCHERS =====
+  app.get("/api/vouchers", auth, (req, res) => {
+    res.json(getAllVouchers(getViewContext(req).ownerId));
+  });
+
+  app.post("/api/vouchers", auth, (req, res) => {
+    try {
+      req.body.owner_id = getWriteOwnerId(req);
+      const v = createVoucher(req.body);
+      res.json({ success: true, voucher: v });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/vouchers/:id", auth, (req, res) => {
+    deleteVoucher(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.post("/api/vouchers/validate", auth, (req, res) => {
+    const result = validateVoucher(req.body.code, req.body.total || 0, getViewContext(req).ownerId);
+    res.json(result);
+  });
+
+  // ===== CSV EXPORT =====
+  app.get("/api/export/:type", auth, (req, res) => {
+    const ctx = getViewContext(req);
+    const type = req.params.type;
+    let rows, headers;
+    if (type === "products") {
+      rows = getAllProducts(null, ctx.ownerId);
+      headers = ["SKU", "Nama", "Harga", "Harga Diskon", "Kategori", "Stok", "Status"];
+      const csv = [headers.join(","), ...rows.map(r => [r.sku || "", `"${(r.name || "").replace(/"/g, '""')}"`, r.price, r.discount_price, `"${r.category}"`, r.stock, r.is_active ? "Aktif" : "Nonaktif"].join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=products_${Date.now()}.csv`);
+      return res.send("﻿" + csv);
+    }
+    if (type === "orders") {
+      rows = getAllOrders(null, 10000, ctx.ownerId, ctx.botId);
+      headers = ["No Order", "Customer", "Items", "Total", "Status", "Pembayaran", "Catatan", "Tanggal"];
+      const csv = [headers.join(","), ...rows.map(r => [r.order_number, `"${(r.customer_name || "").replace(/"/g, '""')}"`, `"${(r.items || "").replace(/"/g, '""')}"`, r.total, r.status, r.payment_status, `"${(r.notes || "").replace(/"/g, '""')}"`, r.created_at].join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=orders_${Date.now()}.csv`);
+      return res.send("﻿" + csv);
+    }
+    if (type === "customers") {
+      rows = getAllCustomers(10000, 0, ctx.ownerId, ctx.botId);
+      headers = ["Nama", "No HP", "Email", "Total Order", "Total Belanja", "Rating", "Kontak Pertama", "Kontak Terakhir"];
+      const csv = [headers.join(","), ...rows.map(r => [`"${(r.name || "").replace(/"/g, '""')}"`, r.phone, r.email || "", r.total_orders, r.total_spent, r.satisfaction_avg, r.first_contact, r.last_contact].join(","))].join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename=customers_${Date.now()}.csv`);
+      return res.send("﻿" + csv);
+    }
+    res.status(400).json({ error: "Tipe export tidak valid. Gunakan: products, orders, customers" });
+  });
+
+  // ===== SCHEDULED BROADCASTS =====
+  app.post("/api/broadcasts/schedule", auth, async (req, res) => {
+    const ownerId = getWriteOwnerId(req);
+    const bc = createBroadcast(req.body.title, req.body.message, req.body.target_tags || [], ownerId);
+    const scheduledAt = req.body.scheduled_at;
+    if (!scheduledAt) return res.status(400).json({ error: "scheduled_at diperlukan" });
+    db.prepare("UPDATE broadcasts SET scheduled_at = ?, status = 'scheduled' WHERE id = ?").run(scheduledAt, bc.id);
+    const delay = new Date(scheduledAt).getTime() - Date.now();
+    if (delay > 0 && delay < 7 * 24 * 60 * 60 * 1000) {
+      setTimeout(async () => {
+        const waSocket = getSocket(req.body.botId);
+        if (!waSocket) return;
+        const targetTags = req.body.target_tags || [];
+        let customers;
+        if (targetTags.length > 0) {
+          customers = getAllCustomers(1000, 0, ownerId).filter(c => {
+            const tags = JSON.parse(c.tags || "[]");
+            return targetTags.some(t => tags.includes(t));
+          });
+        } else {
+          customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
+        }
+        let sent = 0;
+        for (const customer of customers) {
+          try {
+            await waSocket.sendMessage(customer.jid, { text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` });
+            sent++;
+            await new Promise(r => setTimeout(r, 1000));
+          } catch { /* skip */ }
+        }
+        updateBroadcastStatus(bc.id, "sent", sent);
+      }, delay);
+    }
+    res.json({ success: true, broadcast: bc, scheduled_at: scheduledAt });
   });
 
   // ===== SPA FALLBACK =====

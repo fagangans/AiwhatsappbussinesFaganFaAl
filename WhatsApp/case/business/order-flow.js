@@ -1,4 +1,4 @@
-import { getOrCreateCustomer, createOrder, getAllProducts, searchProducts } from "../../database/business/db.js";
+import { getOrCreateCustomer, createOrder, getAllProducts, searchProducts, getVariants, validateVoucher, useVoucher } from "../../database/business/db.js";
 import { formatCurrency } from "../../database/business/helpers.js";
 
 const orderFlowState = new Map();
@@ -38,8 +38,13 @@ function isNo(text) {
   return /^(tidak|gak|nggak|enggak|no|nope|skip)\b/i.test(text.trim());
 }
 
-function priceOf(product) {
-  return product.discount_price > 0 ? product.discount_price : product.price;
+function isAddMore(text) {
+  return /^(tambah|lagi|add|more|tambah lagi)\b/i.test(text.trim());
+}
+
+function priceOf(product, variant = null) {
+  const base = product.discount_price > 0 ? product.discount_price : product.price;
+  return variant ? base + (variant.price_adjustment || 0) : base;
 }
 
 function findProduct(text, ownerId) {
@@ -64,10 +69,24 @@ function extractQty(text) {
 function productListText(products) {
   let text = "Produk yang tersedia:\n";
   products.slice(0, 15).forEach((p, i) => {
-    text += `${i + 1}. ${p.name} - ${formatCurrency(priceOf(p))}\n`;
+    text += `${i + 1}. ${p.name} - ${formatCurrency(priceOf(p))}`;
+    if (p.stock <= 0) text += " _(habis)_";
+    text += "\n";
   });
   text += "\nBalas nama atau nomor produknya ya.";
   return text;
+}
+
+function cartSummary(cart) {
+  let text = "🛒 *Keranjang:*\n";
+  let total = 0;
+  cart.forEach((item, i) => {
+    const subtotal = item.price * item.qty;
+    total += subtotal;
+    text += `${i + 1}. ${item.name}${item.variant_name ? ` (${item.variant_name})` : ""} x${item.qty} = ${formatCurrency(subtotal)}\n`;
+  });
+  text += `\n*Subtotal: ${formatCurrency(total)}*`;
+  return { text, total };
 }
 
 export function startOrderFlow(text, ctx) {
@@ -75,7 +94,7 @@ export function startOrderFlow(text, ctx) {
   const products = getAllProducts(null, ownerId) || [];
   if (products.length === 0) {
     clearState(senderId);
-    return "Maaf, belum ada produk yang tersedia saat ini. 🙏";
+    return { text: "Maaf, belum ada produk yang tersedia saat ini. 🙏" };
   }
 
   const product = findProduct(text, ownerId);
@@ -83,20 +102,33 @@ export function startOrderFlow(text, ctx) {
 
   if (product && qty && qty > 0) {
     if (qty > product.stock) {
-      setState(senderId, { step: "qty", product, ownerId, botId });
-      return `Maaf, stok *${product.name}* cuma ${product.stock}. Mau pesan berapa?`;
+      setState(senderId, { step: "qty", product, cart: [], ownerId, botId });
+      return { text: `Maaf, stok *${product.name}* cuma ${product.stock}. Mau pesan berapa?` };
     }
-    setState(senderId, { step: "notes", product, qty, ownerId, botId });
-    return `Oke, *${product.name}* x${qty} = ${formatCurrency(priceOf(product) * qty)}.\n\nAda catatan tambahan (ukuran, warna, dll)? Balas catatannya atau ketik *tidak* kalau tidak ada.`;
+    const variants = getVariants(product.id);
+    if (variants.length > 0) {
+      setState(senderId, { step: "variant", product, qty, cart: [], ownerId, botId });
+      let vText = `Pilih varian *${product.name}*:\n`;
+      variants.forEach((v, i) => {
+        const adj = v.price_adjustment > 0 ? ` (+${formatCurrency(v.price_adjustment)})` : "";
+        vText += `${i + 1}. ${v.variant_name}${adj} (stok: ${v.stock})\n`;
+      });
+      vText += "\nBalas nomor atau nama variannya.";
+      return { text: vText };
+    }
+    const item = { product_id: product.id, sku: product.sku, name: product.name, price: priceOf(product), qty };
+    setState(senderId, { step: "more", cart: [item], ownerId, botId });
+    const { text: sumText, total } = cartSummary([item]);
+    return { text: `${sumText}\n\nMau *tambah* produk lain atau lanjut? Balas *tambah* atau *lanjut*.`, imageUrl: product.image_url };
   }
 
   if (product && !qty) {
-    setState(senderId, { step: "qty", product, ownerId, botId });
-    return `Mau pesan *${product.name}* berapa banyak? (Stok: ${product.stock})`;
+    setState(senderId, { step: "qty", product, cart: [], ownerId, botId });
+    return { text: `Mau pesan *${product.name}* berapa banyak? (Stok: ${product.stock})`, imageUrl: product.image_url };
   }
 
-  setState(senderId, { step: "product", ownerId, botId });
-  return productListText(products);
+  setState(senderId, { step: "product", cart: [], ownerId, botId });
+  return { text: productListText(products) };
 }
 
 export function continueOrderFlow(text, ctx) {
@@ -106,7 +138,7 @@ export function continueOrderFlow(text, ctx) {
 
   if (isCancel(text)) {
     clearState(senderId);
-    return "Oke, pesanan dibatalkan. 👍";
+    return { text: "Oke, pesanan dibatalkan. 👍" };
   }
 
   if (state.step === "product") {
@@ -114,55 +146,124 @@ export function continueOrderFlow(text, ctx) {
     const idx = parseInt(text.trim());
     let product = !isNaN(idx) && idx >= 1 && idx <= products.length ? products[idx - 1] : findProduct(text, ownerId);
     if (!product) {
-      return "Produk tidak ditemukan, coba sebutkan nama produknya lagi atau ketik *batal*.";
+      return { text: "Produk tidak ditemukan, coba sebutkan nama produknya lagi atau ketik *batal*." };
+    }
+    if (product.stock <= 0) {
+      return { text: `Maaf, *${product.name}* sedang habis stok. Pilih produk lain ya.` };
     }
     setState(senderId, { ...state, step: "qty", product });
-    return `Mau pesan *${product.name}* berapa banyak? (Stok: ${product.stock})`;
+    return { text: `Mau pesan *${product.name}* berapa banyak? (Stok: ${product.stock})`, imageUrl: product.image_url };
   }
 
   if (state.step === "qty") {
     const qty = extractQty(text);
     if (!qty || qty <= 0) {
-      return "Jumlahnya berapa ya? Balas dengan angka, misal: 2";
+      return { text: "Jumlahnya berapa ya? Balas dengan angka, misal: 2" };
     }
     if (qty > state.product.stock) {
-      return `Maaf, stok *${state.product.name}* cuma ${state.product.stock}. Mau pesan berapa?`;
+      return { text: `Maaf, stok *${state.product.name}* cuma ${state.product.stock}. Mau pesan berapa?` };
     }
-    setState(senderId, { ...state, step: "notes", qty });
-    return `Oke, *${state.product.name}* x${qty} = ${formatCurrency(priceOf(state.product) * qty)}.\n\nAda catatan tambahan (ukuran, warna, dll)? Balas catatannya atau ketik *tidak* kalau tidak ada.`;
+    const variants = getVariants(state.product.id);
+    if (variants.length > 0) {
+      setState(senderId, { ...state, step: "variant", qty });
+      let vText = `Pilih varian *${state.product.name}*:\n`;
+      variants.forEach((v, i) => {
+        const adj = v.price_adjustment > 0 ? ` (+${formatCurrency(v.price_adjustment)})` : "";
+        vText += `${i + 1}. ${v.variant_name}${adj} (stok: ${v.stock})\n`;
+      });
+      vText += "\nBalas nomor atau nama variannya.";
+      return { text: vText };
+    }
+    const item = { product_id: state.product.id, sku: state.product.sku, name: state.product.name, price: priceOf(state.product), qty };
+    const cart = [...(state.cart || []), item];
+    setState(senderId, { ...state, step: "more", cart, product: undefined, qty: undefined });
+    const { text: sumText } = cartSummary(cart);
+    return { text: `${sumText}\n\nMau *tambah* produk lain atau *lanjut*?` };
+  }
+
+  if (state.step === "variant") {
+    const variants = getVariants(state.product.id);
+    const idx = parseInt(text.trim());
+    let variant = !isNaN(idx) && idx >= 1 && idx <= variants.length ? variants[idx - 1] : variants.find(v => text.toLowerCase().includes(v.variant_name.toLowerCase()));
+    if (!variant) {
+      return { text: "Varian tidak ditemukan, coba balas nomor atau nama variannya lagi." };
+    }
+    if (state.qty > variant.stock) {
+      return { text: `Maaf, stok varian *${variant.variant_name}* cuma ${variant.stock}. Mau pesan berapa?` };
+    }
+    const price = priceOf(state.product, variant);
+    const item = { product_id: state.product.id, variant_id: variant.id, sku: variant.sku || state.product.sku, name: state.product.name, variant_name: variant.variant_name, price, qty: state.qty };
+    const cart = [...(state.cart || []), item];
+    setState(senderId, { ...state, step: "more", cart, product: undefined, qty: undefined });
+    const { text: sumText } = cartSummary(cart);
+    return { text: `${sumText}\n\nMau *tambah* produk lain atau *lanjut*?` };
+  }
+
+  if (state.step === "more") {
+    if (isAddMore(text) || /^tambah/i.test(text.trim())) {
+      setState(senderId, { ...state, step: "product" });
+      const products = getAllProducts(null, ownerId) || [];
+      return { text: productListText(products) };
+    }
+    if (isYes(text) || /^(lanjut|checkout|bayar|selesai)\b/i.test(text.trim())) {
+      setState(senderId, { ...state, step: "notes" });
+      return { text: "Ada catatan tambahan untuk pesanan ini? Balas catatannya atau ketik *tidak* kalau tidak ada." };
+    }
+    return { text: "Balas *tambah* untuk tambah produk lain, atau *lanjut* untuk checkout." };
   }
 
   if (state.step === "notes") {
-    const notes = isNo(text) ? "" : text.trim().slice(0, 200);
-    setState(senderId, { ...state, step: "confirm", notes });
-    const total = priceOf(state.product) * state.qty;
-    let summary = `Konfirmasi pesanan:\n*${state.product.name}* x${state.qty} = ${formatCurrency(total)}\n`;
-    if (notes) summary += `Catatan: ${notes}\n`;
-    summary += `\nBalas *ya* untuk buat pesanan, atau *batal* untuk membatalkan.`;
-    return summary;
+    const notes = isNo(text) ? "" : text.trim().slice(0, 500);
+    setState(senderId, { ...state, step: "voucher", notes });
+    return { text: "Punya kode voucher/diskon? Balas kodenya atau ketik *tidak*." };
+  }
+
+  if (state.step === "voucher") {
+    let discount = 0;
+    let voucherCode = "";
+    const { total } = cartSummary(state.cart);
+    if (!isNo(text)) {
+      const code = text.trim().toUpperCase();
+      const result = validateVoucher(code, total, ownerId);
+      if (!result.valid) {
+        return { text: `${result.reason}\n\nCoba kode lain atau ketik *tidak* untuk lanjut tanpa voucher.` };
+      }
+      discount = result.discount;
+      voucherCode = code;
+    }
+    setState(senderId, { ...state, step: "confirm", discount, voucherCode });
+    const { text: sumText } = cartSummary(state.cart);
+    let confirm = `Konfirmasi pesanan:\n${sumText}\n`;
+    if (discount > 0) confirm += `Diskon (${voucherCode}): -${formatCurrency(discount)}\n*Grand Total: ${formatCurrency(total - discount)}*\n`;
+    if (state.notes) confirm += `Catatan: ${state.notes}\n`;
+    confirm += `\nBalas *ya* untuk buat pesanan, atau *batal* untuk membatalkan.`;
+    return { text: confirm };
   }
 
   if (state.step === "confirm") {
     if (isYes(text)) {
       const customer = getOrCreateCustomer(senderId, pushName || "Customer", ownerId, botId);
-      const total = priceOf(state.product) * state.qty;
+      const { total: subtotal } = cartSummary(state.cart);
+      const discount = state.discount || 0;
+      const grandTotal = subtotal - discount;
       const order = createOrder(
         customer.id,
-        [{ product_id: state.product.id, sku: state.product.sku, name: state.product.name, price: priceOf(state.product), qty: state.qty }],
-        total,
+        state.cart,
+        grandTotal,
         state.notes || "",
         "",
         ownerId,
         botId,
       );
+      if (state.voucherCode) useVoucher(state.voucherCode, ownerId);
       clearState(senderId);
-      return `Pesanan berhasil dibuat! 🎉\n\nNo. Order: *${order.order_number}*\nTotal: ${formatCurrency(total)}\n\nKetik *.cekorder ${order.order_number}* buat cek status ya.`;
+      return { text: `Pesanan berhasil dibuat! 🎉\n\nNo. Order: *${order.order_number}*\nTotal: ${formatCurrency(grandTotal)}\n\nKetik *.cekorder ${order.order_number}* buat cek status ya.`, order, customerName: customer.name || pushName || "Customer" };
     }
     if (isNo(text)) {
       clearState(senderId);
-      return "Oke, pesanan dibatalkan. 👍";
+      return { text: "Oke, pesanan dibatalkan. 👍" };
     }
-    return "Balas *ya* untuk konfirmasi pesanan, atau *batal* untuk membatalkan.";
+    return { text: "Balas *ya* untuk konfirmasi pesanan, atau *batal* untuk membatalkan." };
   }
 
   clearState(senderId);

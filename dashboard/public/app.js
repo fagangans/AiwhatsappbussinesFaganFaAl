@@ -210,7 +210,7 @@ async function showPage(page) {
   const titles = {
     dashboard: "Dashboard", products: "Produk", orders: "Order", customers: "Customer",
     tickets: "Tiket Support", faq: "FAQ", templates: "Template", broadcast: "Broadcast",
-    agents: "Agents", botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
+    agents: "Agents", vouchers: "Voucher", botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
     clients: "Kelola Client", settings: "Pengaturan Bisnis",
   };
   document.getElementById("pageTitle").textContent = titles[page] || page;
@@ -224,6 +224,7 @@ async function showPage(page) {
     templates: "Buat template pesan untuk balasan cepat.",
     broadcast: "Kirim pesan massal ke semua atau sebagian customer.",
     agents: "Kelola agen CS yang menangani chat customer.",
+    vouchers: "Buat dan kelola kode voucher/diskon untuk pelanggan.",
     botmanager: "Tambah, hapus, atau atur bot WhatsApp yang terhubung.",
     important: "Pesan masuk yang terdeteksi penting atau mendesak.",
     analytics: "Grafik dan statistik performa bot secara detail.",
@@ -245,6 +246,7 @@ async function showPage(page) {
       case "templates": await renderTemplates(content); break;
       case "broadcast": await renderBroadcast(content); break;
       case "agents": await renderAgents(content); break;
+      case "vouchers": await renderVouchers(content); break;
       case "botmanager": await renderBotManager(content); break;
       case "important": await renderImportant(content); break;
       case "analytics": await renderAnalytics(content); break;
@@ -323,6 +325,7 @@ async function renderProducts(el) {
         <input type="text" id="productSearch" placeholder="Cari produk..." class="w-64" onkeyup="searchProductDebounce()">
         <select id="productCatFilter" onchange="filterProductsCat()" class="w-40"><option value="">Semua Kategori</option>${categories.map(c=>`<option>${c}</option>`).join("")}</select>
       </div>
+      <button onclick="exportCSV('products')" class="btn btn-outline"><i class="fas fa-download mr-1"></i>Export CSV</button>
       <button onclick="showAddProduct()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Tambah Produk</button>
     </div>
     <div class="card overflow-x-auto">
@@ -337,6 +340,7 @@ async function renderProducts(el) {
             <td>${p.discount_price > 0 ? formatCurrency(p.discount_price) : "-"}</td>
             <td><span class="${p.stock <= 0 ? "text-red-500 font-bold" : p.stock <= 5 ? "text-yellow-500 font-bold" : "text-green-600"}">${p.stock}</span></td>
             <td class="space-x-1">
+              <button onclick="showVariants(${p.id},'${p.name.replace(/'/g, "\\'")}')" class="btn btn-warning text-xs py-1 px-2 write-action" title="Varian"><i class="fas fa-palette"></i></button>
               <button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button>
               <button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button>
             </td>
@@ -428,8 +432,9 @@ async function renderOrders(el) {
       <div class="card p-3 text-center"><p class="text-xs text-gray-500">Selesai</p><p class="text-xl font-bold text-green-600">${stats.delivered}</p></div>
       <div class="card p-3 text-center"><p class="text-xs text-gray-500">Revenue</p><p class="text-xl font-bold text-green-700">${formatCurrency(stats.total_revenue)}</p></div>
     </div>
-    <div class="flex gap-2 mb-4">
+    <div class="flex gap-2 mb-4 items-center justify-between">
       <select id="orderFilter" onchange="filterOrders()" class="w-48"><option value="">Semua Status</option><option value="pending">Pending</option><option value="confirmed">Dikonfirmasi</option><option value="processing">Diproses</option><option value="shipped">Dikirim</option><option value="delivered">Selesai</option><option value="cancelled">Dibatalkan</option></select>
+      <button onclick="exportCSV('orders')" class="btn btn-outline"><i class="fas fa-download mr-1"></i>Export CSV</button>
     </div>
     <div class="card overflow-x-auto">
       <table>
@@ -468,7 +473,7 @@ async function viewOrder(num) {
       ${o.notes ? `<p><b>Catatan:</b> ${o.notes}</p>` : ""}
       ${o.tracking_number ? `<p><b>Resi:</b> ${o.tracking_number}</p>` : ""}
       <hr class="my-3">
-      <table class="text-sm"><thead><tr><th>Produk</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>${items.map(i=>`<tr><td>${i.name}</td><td>${i.qty}</td><td>${formatCurrency(i.price)}</td><td>${formatCurrency(i.price*i.qty)}</td></tr>`).join("")}</tbody></table>
+      <table class="text-sm"><thead><tr><th>Produk</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>${items.map(i=>`<tr><td>${i.name}${i.variant_name ? ` <span class="badge badge-blue">${i.variant_name}</span>` : ""}</td><td>${i.qty}</td><td>${formatCurrency(i.price)}</td><td>${formatCurrency(i.price*i.qty)}</td></tr>`).join("")}</tbody></table>
       <p class="text-right font-bold text-lg mt-2">Total: ${formatCurrency(o.total)}</p>
     </div>
     <div class="flex justify-end mt-4"><button onclick="closeModal()" class="btn btn-outline">Tutup</button></div>`);
@@ -495,7 +500,10 @@ async function renderCustomers(el) {
   el.innerHTML = `
     <div class="flex justify-between items-center mb-4">
       <input type="text" id="custSearch" placeholder="Cari customer..." class="w-64" onkeyup="searchCustDebounce()">
-      <span class="text-sm text-gray-500">Total: ${count.count}</span>
+      <div class="flex items-center gap-3">
+        <span class="text-sm text-gray-500">Total: ${count.count}</span>
+        <button onclick="exportCSV('customers')" class="btn btn-outline"><i class="fas fa-download mr-1"></i>Export CSV</button>
+      </div>
     </div>
     <div class="card overflow-x-auto">
       <table>
@@ -683,12 +691,26 @@ function showNewBroadcast() {
       <div><label class="block text-sm font-medium mb-1">Judul *</label><input id="bcTitle"></div>
       <div><label class="block text-sm font-medium mb-1">Pesan *</label><textarea id="bcMsg" rows="4"></textarea></div>
       <div><label class="block text-sm font-medium mb-1">Target Tags (kosong = semua)</label><input id="bcTags" placeholder="VIP, Loyal"></div>
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="bcSendNow" checked> Kirim sekarang</label>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="bcSendNow" checked onchange="document.getElementById('bcScheduleWrap').classList.toggle('hidden',this.checked)"> Kirim sekarang</label>
+      <div id="bcScheduleWrap" class="hidden"><label class="block text-sm font-medium mb-1">Jadwalkan untuk</label><input id="bcScheduleAt" type="datetime-local"></div>
       <div class="flex gap-2 justify-end"><button onclick="closeModal()" class="btn btn-outline">Batal</button><button onclick="doBroadcast()" class="btn btn-primary">Kirim</button></div>
     </div>`);
 }
 
-async function doBroadcast() { const t = document.getElementById("bcTitle").value, m = document.getElementById("bcMsg").value; if (!t||!m) return toast("Judul dan pesan wajib","error"); const tags = document.getElementById("bcTags").value.split(",").map(s=>s.trim()).filter(Boolean); await api("/api/broadcasts", { method: "POST", body: { title: t, message: m, target_tags: tags, send_now: document.getElementById("bcSendNow").checked, botId: selectedBotId } }); closeModal(); toast("Broadcast dikirim"); showPage("broadcast"); }
+async function doBroadcast() {
+  const t = document.getElementById("bcTitle").value, m = document.getElementById("bcMsg").value;
+  if (!t||!m) return toast("Judul dan pesan wajib","error");
+  const tags = document.getElementById("bcTags").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const sendNow = document.getElementById("bcSendNow").checked;
+  if (!sendNow) {
+    const schedAt = document.getElementById("bcScheduleAt").value;
+    if (!schedAt) return toast("Pilih waktu jadwal","error");
+    await api("/api/broadcasts/schedule", { method: "POST", body: { title: t, message: m, target_tags: tags, scheduled_at: new Date(schedAt).toISOString(), botId: selectedBotId } });
+    closeModal(); toast("Broadcast dijadwalkan"); showPage("broadcast"); return;
+  }
+  await api("/api/broadcasts", { method: "POST", body: { title: t, message: m, target_tags: tags, send_now: true, botId: selectedBotId } });
+  closeModal(); toast("Broadcast dikirim"); showPage("broadcast");
+}
 
 // ===== AGENTS =====
 async function renderAgents(el) {
@@ -1216,6 +1238,131 @@ async function deleteClient(id, username) {
     toast("Client dihapus");
     showPage("clients");
   } catch (e) { toast(e.message, "error"); }
+}
+
+// ===== VOUCHERS =====
+async function renderVouchers(el) {
+  const vouchers = await api("/api/vouchers");
+  el.innerHTML = `
+    <div class="flex justify-end mb-4"><button onclick="showAddVoucher()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Buat Voucher</button></div>
+    <div class="card overflow-x-auto">
+      <table>
+        <thead><tr><th>Kode</th><th>Tipe</th><th>Nilai</th><th>Min. Order</th><th>Maks Diskon</th><th>Dipakai</th><th>Limit</th><th>Berlaku</th><th>Aksi</th></tr></thead>
+        <tbody>${vouchers.map(v => `<tr>
+          <td class="font-mono font-bold">${v.code}</td>
+          <td>${v.discount_type === "percentage" ? "Persen (%)" : "Nominal (Rp)"}</td>
+          <td>${v.discount_type === "percentage" ? v.discount_value + "%" : formatCurrency(v.discount_value)}</td>
+          <td>${v.min_order > 0 ? formatCurrency(v.min_order) : "-"}</td>
+          <td>${v.max_discount > 0 ? formatCurrency(v.max_discount) : "-"}</td>
+          <td>${v.used_count}</td>
+          <td>${v.usage_limit > 0 ? v.usage_limit : "∞"}</td>
+          <td class="text-xs">${v.valid_until ? formatDate(v.valid_until) : "Tanpa batas"}</td>
+          <td><button onclick="delVoucher(${v.id},'${v.code}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td>
+        </tr>`).join("")}</tbody>
+      </table>
+      ${vouchers.length === 0 ? '<p class="text-center py-8 text-gray-400">Belum ada voucher</p>' : ""}
+    </div>`;
+}
+
+function showAddVoucher() {
+  showModal(\`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-tags mr-2 text-orange-500"></i>Buat Voucher</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm font-medium mb-1">Kode Voucher *</label><input id="vCode" placeholder="DISKON10" style="text-transform:uppercase"></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-sm font-medium mb-1">Tipe Diskon</label><select id="vType"><option value="percentage">Persen (%)</option><option value="fixed">Nominal (Rp)</option></select></div>
+        <div><label class="block text-sm font-medium mb-1">Nilai Diskon *</label><input id="vValue" type="number" placeholder="10"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-sm font-medium mb-1">Min. Order</label><input id="vMinOrder" type="number" placeholder="0"></div>
+        <div><label class="block text-sm font-medium mb-1">Maks Diskon</label><input id="vMaxDiscount" type="number" placeholder="0 = tanpa batas"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-sm font-medium mb-1">Limit Pemakaian</label><input id="vLimit" type="number" placeholder="0 = tanpa batas"></div>
+        <div><label class="block text-sm font-medium mb-1">Berlaku Sampai</label><input id="vUntil" type="date"></div>
+      </div>
+      <div class="flex gap-2 justify-end mt-4">
+        <button onclick="closeModal()" class="btn btn-outline">Batal</button>
+        <button onclick="saveVoucher()" class="btn btn-primary">Simpan</button>
+      </div>
+    </div>\`);
+}
+
+async function saveVoucher() {
+  const code = document.getElementById("vCode").value.trim();
+  const discount_value = parseFloat(document.getElementById("vValue").value) || 0;
+  if (!code || !discount_value) return toast("Kode dan nilai diskon wajib", "error");
+  const data = {
+    code, discount_type: document.getElementById("vType").value, discount_value,
+    min_order: parseFloat(document.getElementById("vMinOrder").value) || 0,
+    max_discount: parseFloat(document.getElementById("vMaxDiscount").value) || 0,
+    usage_limit: parseInt(document.getElementById("vLimit").value) || 0,
+    valid_until: document.getElementById("vUntil").value || null,
+  };
+  try { await api("/api/vouchers", { method: "POST", body: data }); closeModal(); toast("Voucher berhasil dibuat"); showPage("vouchers"); } catch(e) { toast(e.message, "error"); }
+}
+
+async function delVoucher(id, code) {
+  if (!confirm(\`Hapus voucher "\${code}"?\`)) return;
+  await api(\`/api/vouchers/\${id}\`, { method: "DELETE" }); toast("Voucher dihapus"); showPage("vouchers");
+}
+
+// ===== PRODUCT VARIANTS =====
+async function showVariants(productId, productName) {
+  const variants = await api(\`/api/products/\${productId}/variants\`);
+  showModal(\`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-palette mr-2 text-yellow-500"></i>Varian: \${productName}</h3>
+    <div id="variantList">
+      \${variants.length > 0 ? \`<table class="mb-4"><thead><tr><th>Nama Varian</th><th>SKU</th><th>+/- Harga</th><th>Stok</th><th>Aksi</th></tr></thead><tbody>\${variants.map(v => \`<tr>
+        <td>\${v.variant_name}</td>
+        <td class="font-mono text-xs">\${v.sku || "-"}</td>
+        <td>\${v.price_adjustment > 0 ? "+" + formatCurrency(v.price_adjustment) : v.price_adjustment < 0 ? formatCurrency(v.price_adjustment) : "-"}</td>
+        <td>\${v.stock}</td>
+        <td><button onclick="delVariant(\${v.id},\${productId},'\${productName.replace(/'/g, "\\\\'")}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button></td>
+      </tr>\`).join("")}</tbody></table>\` : '<p class="text-center py-4 text-gray-400 mb-4">Belum ada varian</p>'}
+    </div>
+    <hr class="my-3">
+    <h4 class="text-sm font-bold mb-2">Tambah Varian</h4>
+    <div class="space-y-2">
+      <div class="grid grid-cols-2 gap-2">
+        <input id="vrName" placeholder="Nama varian (misal: Merah - L)">
+        <input id="vrSku" placeholder="SKU (opsional)">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <input id="vrPrice" type="number" placeholder="+/- harga (misal: 5000)">
+        <input id="vrStock" type="number" placeholder="Stok">
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="btn btn-outline">Tutup</button>
+        <button onclick="addVariantBtn(\${productId},'\${productName.replace(/'/g, "\\\\'")}')" class="btn btn-primary">Tambah</button>
+      </div>
+    </div>\`);
+}
+
+async function addVariantBtn(productId, productName) {
+  const variant_name = document.getElementById("vrName").value.trim();
+  if (!variant_name) return toast("Nama varian wajib diisi", "error");
+  const data = { variant_name, sku: document.getElementById("vrSku").value || null, price_adjustment: parseFloat(document.getElementById("vrPrice").value) || 0, stock: parseInt(document.getElementById("vrStock").value) || 0 };
+  try { await api(\`/api/products/\${productId}/variants\`, { method: "POST", body: data }); toast("Varian ditambahkan"); showVariants(productId, productName); } catch(e) { toast(e.message, "error"); }
+}
+
+async function delVariant(variantId, productId, productName) {
+  if (!confirm("Hapus varian ini?")) return;
+  await api(\`/api/variants/\${variantId}\`, { method: "DELETE" }); toast("Varian dihapus"); showVariants(productId, productName);
+}
+
+// ===== CSV EXPORT =====
+async function exportCSV(type) {
+  try {
+    const res = await fetch(\`/api/export/\${type}\`, { headers: { Authorization: \`Bearer \${token}\` } });
+    if (!res.ok) throw new Error("Export failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = \`\${type}_\${new Date().toISOString().slice(0,10)}.csv\`;
+    a.click(); URL.revokeObjectURL(url);
+    toast("File CSV berhasil didownload");
+  } catch(e) { toast("Gagal export: " + e.message, "error"); }
 }
 
 // ===== INIT =====

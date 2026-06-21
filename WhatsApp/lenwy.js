@@ -22,7 +22,8 @@ import "./database/Menu/LenwyMenu.js";
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
 import { askBusinessAssistant, detectIntent } from "./case/business/ai-assistant.js";
 import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow } from "./case/business/order-flow.js";
-import { getProfile } from "./database/business/db.js";
+import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
+import { getProfile, getLowStockProducts } from "./database/business/db.js";
 
 // [ ===== Import Pustaka ===== ]
 import fs from "fs";
@@ -180,6 +181,8 @@ function watchPlugins() {
 
 watchPlugins();
 
+const schedulerStarted = new Set();
+
 // Export Handler
 export default async (lenwy, m, meta) => {
   const { body, mediaType, sender: originalSender, pushname, botId, dashboardApp, ownerId } = meta;
@@ -187,6 +190,13 @@ export default async (lenwy, m, meta) => {
   if (!msg.message) return;
 
   const replyJid = msg.key.remoteJid;
+
+  if (!schedulerStarted.has(ownerId)) {
+    schedulerStarted.add(ownerId);
+    const CreatorPathBoot = path.join(process.cwd(), "WhatsApp", "database", "creator.json");
+    const bootCreators = readJSONSync(CreatorPathBoot);
+    if (bootCreators.length > 0) startNotificationScheduler(lenwy, ownerId, bootCreators[0]);
+  }
 
   let authJid = originalSender;
 
@@ -369,18 +379,34 @@ export default async (lenwy, m, meta) => {
       const profile = getProfile(ownerId);
       if (profile.ai_enabled) {
         if (hasActiveOrderFlow(normalizedSender)) {
-          const flowReply = continueOrderFlow(body, {
+          const flowResult = continueOrderFlow(body, {
             senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
           });
-          if (flowReply) await lenwyreply(flowReply);
+          if (flowResult) {
+            if (flowResult.imageUrl) {
+              try { await lenwy.sendMessage(replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }); } catch (_) { await lenwyreply(flowResult.text); }
+            } else {
+              await lenwyreply(flowResult.text);
+            }
+            if (flowResult.order) {
+              for (const ownerJid of isCreatorArray) {
+                await notifyNewOrder(lenwy, ownerJid, flowResult.order, flowResult.customerName);
+              }
+              await checkLowStock(lenwy, ownerId, isCreatorArray[0]);
+            }
+          }
           return;
         }
         const intent = detectIntent(body);
         if (intent === "pesan") {
-          const flowReply = startOrderFlow(body, {
+          const flowResult = startOrderFlow(body, {
             senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
           });
-          await lenwyreply(flowReply);
+          if (flowResult.imageUrl) {
+            try { await lenwy.sendMessage(replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }); } catch (_) { await lenwyreply(flowResult.text); }
+          } else {
+            await lenwyreply(flowResult.text);
+          }
           return;
         }
         if (intent === "menu") {
