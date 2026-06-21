@@ -63,6 +63,22 @@ function guessPriority(text) {
   return null;
 }
 
+function isOffScriptQuestion(text) {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  if (/\?$/.test(t)) return true;
+  if (/^(apa|gimana|bagaimana|kenapa|mengapa|kapan|dimana|siapa|kok|emang|maksudnya|jelasin|jelaskan|info|tentang)/i.test(t)) return true;
+  return false;
+}
+
+function getStepHint(step) {
+  if (step === "subject") return "_Btw, kamu lagi buat tiket. Ceritakan masalahnya kalau mau lanjut_ 😊";
+  if (step === "description") return "_Btw, kamu lagi nambahin detail tiket. Tulis detailnya atau ketik *tidak* untuk skip_ 😊";
+  if (step === "priority") return "_Btw, kamu lagi pilih prioritas tiket. Balas 1-4 atau katanya (rendah/sedang/tinggi/mendesak)_ 😊";
+  if (step === "confirm") return "_Btw, kamu lagi konfirmasi tiket. Balas *ya* untuk kirim atau *batal* untuk membatalkan_ 😊";
+  return "";
+}
+
 export function startTicketFlow(text, ctx) {
   const { senderId, ownerId, botId } = ctx;
   const subject = extractSubjectFromText(text);
@@ -88,6 +104,9 @@ export function continueTicketFlow(text, ctx) {
   }
 
   if (state.step === "subject") {
+    if (isOffScriptQuestion(text) && text.trim().length < 30) {
+      return { fallthrough: true, hint: getStepHint("subject") };
+    }
     const subject = text.trim().slice(0, 200);
     if (subject.length < 3) {
       return "Coba ceritain sedikit lebih detail ya, masalahnya tentang apa?";
@@ -98,8 +117,10 @@ export function continueTicketFlow(text, ctx) {
   }
 
   if (state.step === "description") {
+    if (isOffScriptQuestion(text) && !isNo(text) && text.trim().length < 30) {
+      return { fallthrough: true, hint: getStepHint("description") };
+    }
     const description = isNo(text) ? "" : text.trim().slice(0, 500);
-    const priority = state.autoPriority || "medium";
     setState(senderId, { ...state, step: "priority", description });
     return `Seberapa mendesak masalahnya?\n\n1. Rendah — bisa ditangani nanti\n2. Sedang — perlu ditangani\n3. Tinggi — cukup mendesak\n4. Mendesak — butuh penanganan segera\n\nBalas angka atau katanya aja`;
   }
@@ -113,7 +134,12 @@ export function continueTicketFlow(text, ctx) {
         if (lower.includes(key)) { priority = val; break; }
       }
     }
-    if (!priority) priority = "medium";
+    if (!priority) {
+      if (isOffScriptQuestion(text)) {
+        return { fallthrough: true, hint: getStepHint("priority") };
+      }
+      priority = "medium";
+    }
 
     setState(senderId, { ...state, step: "confirm", priority });
     let confirm = `Ringkasan tiket:\n\n`;
@@ -135,9 +161,11 @@ export function continueTicketFlow(text, ctx) {
       clearState(senderId);
       return "Oke, pembuatan tiket dibatalkan. Kalau butuh bantuan lagi, bilang aja ya 😊";
     }
+    if (isOffScriptQuestion(text)) {
+      return { fallthrough: true, hint: getStepHint("confirm") };
+    }
     return "Balas *ya* untuk kirim tiket, atau *batal* untuk membatalkan";
   }
 
-  clearState(senderId);
-  return null;
+  return { fallthrough: true, hint: getStepHint(state.step) };
 }

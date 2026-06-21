@@ -41,10 +41,18 @@ const usePairingCode = true;
 // Track active connection per bot to prevent reconnect stampede
 const activeSessions = new Map();
 const currentSockets = new Map();
+const reconnectAttempts = new Map();
+const reconnectTimers = new Map();
 
 // Hentikan koneksi/percobaan reconnect untuk bot yang dihapus dari dashboard
 export function stopBot(botId) {
   activeSessions.delete(botId);
+  reconnectAttempts.delete(botId);
+  const timer = reconnectTimers.get(botId);
+  if (timer) {
+    clearTimeout(timer);
+    reconnectTimers.delete(botId);
+  }
   const sock = currentSockets.get(botId);
   currentSockets.delete(botId);
   if (sock) {
@@ -94,13 +102,15 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
     logger: pino({ level: "silent" }),
     printQRInTerminal: !usePairingCode,
     auth: state,
-    browser: ["Ubuntu", "Chrome", "20.0.04"],
+    browser: ["Lenwy CS", "Chrome", "120.0.0"],
     version,
-    syncFullHistory: true,
-    generateHighQualityLinkPreview: true,
-    getMessage: async (key) => {
-      return {};
-    },
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    generateHighQualityLinkPreview: false,
+    connectTimeoutMs: 60000,
+    keepAliveIntervalMs: 25000,
+    retryRequestDelayMs: 250,
+    getMessage: async () => undefined,
   });
 
   // Bot was stopped/deleted while we were setting up — abort immediately
@@ -147,24 +157,58 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       if (activeSessions.get(botId) !== sessionId) {
         return;
       }
+      currentSockets.delete(botId);
 
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+      const isBadSession = statusCode === DisconnectReason.badSession;
+      const isReplaced = statusCode === DisconnectReason.connectionReplaced;
 
-      if (shouldReconnect) {
-        console.log(chalk.yellow(`⏳  ${tag} Koneksi terputus (${statusCode || "unknown"}), reconnect dalam 5 detik...`));
-        setTimeout(() => {
-          // Check again before reconnecting
-          if (activeSessions.get(botId) === sessionId) {
-            connectToWhatsApp(dashboardApp, botConfig, true);
-          }
-        }, 5000);
-      } else {
+      if (isLoggedOut || isBadSession) {
         const reason = lastDisconnect?.error?.output?.payload?.message || lastDisconnect?.error?.message || "tidak diketahui";
-        console.log(chalk.red(`❌  ${tag} Bot logged out, tidak reconnect (statusCode: ${statusCode}, alasan: ${reason})`));
+        console.log(chalk.red(`❌  ${tag} Bot logged out / sesi rusak — perlu pair ulang (statusCode: ${statusCode}, alasan: ${reason})`));
         activeSessions.delete(botId);
+        reconnectAttempts.delete(botId);
+        if (isBadSession) {
+          try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch {}
+        }
+        return;
       }
+
+      if (isReplaced) {
+        console.log(chalk.red(`❌  ${tag} Koneksi digantikan (login dari device lain) — berhenti reconnect`));
+        activeSessions.delete(botId);
+        reconnectAttempts.delete(botId);
+        return;
+      }
+
+      const attempts = (reconnectAttempts.get(botId) || 0) + 1;
+      reconnectAttempts.set(botId, attempts);
+
+      if (attempts > 15) {
+        console.log(chalk.red(`❌  ${tag} Gagal reconnect setelah ${attempts} percobaan — berhenti. Cek koneksi internet / restart bot via dashboard.`));
+        activeSessions.delete(botId);
+        reconnectAttempts.delete(botId);
+        return;
+      }
+
+      const baseDelay = Math.min(5000 * Math.pow(2, attempts - 1), 300000);
+      const jitter = Math.floor(Math.random() * 2000);
+      const delay = baseDelay + jitter;
+
+      console.log(chalk.yellow(`⏳  ${tag} Koneksi terputus (${statusCode || "unknown"}), reconnect attempt ${attempts}/15 dalam ${Math.round(delay / 1000)}s...`));
+
+      const timer = setTimeout(() => {
+        reconnectTimers.delete(botId);
+        if (activeSessions.get(botId) === sessionId) {
+          connectToWhatsApp(dashboardApp, botConfig, true).catch((err) => {
+            console.error(chalk.red(`${tag} Reconnect error:`), err.message);
+          });
+        }
+      }, delay);
+      reconnectTimers.set(botId, timer);
     } else if (connection === "open") {
+      reconnectAttempts.delete(botId);
       console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
       if (dashboardApp && dashboardApp.setWaSocket) {
         dashboardApp.setWaSocket(botId, botName, lenwy);

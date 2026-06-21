@@ -55,6 +55,26 @@ function isCheckout(text) {
   return /\b(lanjut|checkout|bayar|selesai|gas|oke|ok|ya)\b/i.test(text.trim());
 }
 
+function isOffScriptQuestion(text) {
+  const t = text.trim();
+  if (t.length === 0) return false;
+  if (/\?$/.test(t)) return true;
+  if (/^(apa|gimana|bagaimana|kenapa|mengapa|kapan|dimana|siapa|kok|emang|maksudnya|jelasin|jelaskan|terus|trs|info|tentang|cerita|ceritakan|tolong jelas)/i.test(t)) return true;
+  return false;
+}
+
+function getStepHint(step, state) {
+  if (step === "product") return "_Btw, kamu lagi pilih produk yang mau dipesan. Balas nama atau nomor produknya kalau mau lanjut_ 😊";
+  if (step === "qty") return `_Btw, kamu lagi pesan *${state.product?.name || "produk"}*. Balas jumlahnya (angka) kalau mau lanjut_ 😊`;
+  if (step === "variant") return `_Btw, kamu lagi pilih varian. Balas nomor variannya kalau mau lanjut_ 😊`;
+  if (step === "more") return "_Btw, ada produk di keranjang kamu. Ketik *tambah* untuk tambah produk, atau *lanjut* untuk checkout_ 😊";
+  if (step === "notes") return "_Btw, kamu lagi isi catatan pesanan. Tulis catatannya atau ketik *tidak* untuk skip_ 😊";
+  if (step === "voucher") return "_Btw, kamu lagi di tahap voucher. Balas kode voucher atau ketik *tidak* untuk skip_ 😊";
+  if (step === "payment") return "_Btw, kamu lagi pilih metode bayar. Balas nomor atau nama metodenya_ 😊";
+  if (step === "confirm") return "_Btw, kamu lagi tahap konfirmasi pesanan. Balas *ya* untuk konfirmasi atau *batal* untuk membatalkan_ 😊";
+  return "";
+}
+
 function priceOf(product, variant = null) {
   const base = product.discount_price > 0 ? product.discount_price : product.price;
   return variant ? base + (variant.price_adjustment || 0) : base;
@@ -238,26 +258,30 @@ export function continueOrderFlow(text, ctx) {
       return { text: `*${product.name}* — ${formatCurrency(priceOf(product))}\nMau pesan berapa? (stok: ${product.stock})`, imageUrl: product.image_url };
     }
 
-    return { text: "Hmm, produknya yang mana ya? Coba sebut nama produknya atau pilih nomor dari daftar di atas 😊\n\nKetik *batal* kalau gak jadi" };
+    return { fallthrough: true, hint: getStepHint("product", state) };
   }
 
   if (state.step === "qty") {
     const qty = extractQty(text);
 
-    if (!qty || qty <= 0) {
-      const product = findProduct(text, ownerId);
-      if (product && product.id !== state.product.id) {
-        setState(senderId, { ...state, step: "qty", product });
-        return { text: `Oke, ganti ke *${product.name}* ya — ${formatCurrency(priceOf(product))}\nMau pesan berapa? (stok: ${product.stock})`, imageUrl: product.image_url };
+    if (qty && qty > 0) {
+      if (qty > state.product.stock) {
+        return { text: `Maaf, stok *${state.product.name}* tinggal ${state.product.stock}. Mau pesan berapa?` };
       }
-      return { text: `Mau pesan *${state.product.name}* berapa? Balas angkanya aja ya, misal: 2` };
+      return addToCartAndRespond(senderId, state, state.product, qty, ownerId, botId);
     }
 
-    if (qty > state.product.stock) {
-      return { text: `Maaf, stok *${state.product.name}* tinggal ${state.product.stock}. Mau pesan berapa?` };
+    const product = findProduct(text, ownerId);
+    if (product && product.id !== state.product.id) {
+      setState(senderId, { ...state, step: "qty", product });
+      return { text: `Oke, ganti ke *${product.name}* ya — ${formatCurrency(priceOf(product))}\nMau pesan berapa? (stok: ${product.stock})`, imageUrl: product.image_url };
     }
 
-    return addToCartAndRespond(senderId, state, state.product, qty, ownerId, botId);
+    if (isOffScriptQuestion(text)) {
+      return { fallthrough: true, hint: getStepHint("qty", state) };
+    }
+
+    return { text: `Mau pesan *${state.product.name}* berapa? Balas angkanya aja ya, misal: 2\n\nKetik *batal* kalau gak jadi` };
   }
 
   if (state.step === "variant") {
@@ -276,6 +300,9 @@ export function continueOrderFlow(text, ctx) {
     }
 
     if (!variant) {
+      if (isOffScriptQuestion(text)) {
+        return { fallthrough: true, hint: getStepHint("variant", state) };
+      }
       let vText = "Varian yang mana ya? Pilih dari daftar ini:\n";
       variants.forEach((v, i) => {
         const adj = v.price_adjustment > 0 ? ` (+${formatCurrency(v.price_adjustment)})` : "";
@@ -322,7 +349,7 @@ export function continueOrderFlow(text, ctx) {
       return { text: "Ada catatan tambahan untuk pesanan ini? Kalau gak ada, ketik *tidak* aja" };
     }
 
-    return { text: "Mau *tambah* produk lain, atau *lanjut* checkout? Bisa juga langsung sebut nama produknya 😊" };
+    return { fallthrough: true, hint: getStepHint("more", state) };
   }
 
   if (state.step === "notes") {
@@ -367,6 +394,9 @@ export function continueOrderFlow(text, ctx) {
     const idx = parseInt(text.trim());
     let method = !isNaN(idx) && idx >= 1 && idx <= methods.length ? methods[idx - 1] : methods.find(m => text.toLowerCase().includes(m.name.toLowerCase()));
     if (!method) {
+      if (isOffScriptQuestion(text)) {
+        return { fallthrough: true, hint: getStepHint("payment", state) };
+      }
       return { text: "Metode pembayaran yang mana ya? Balas nomor atau nama metodenya aja 😊" };
     }
     setState(senderId, { ...state, step: "confirm", paymentMethod: method });
@@ -411,9 +441,11 @@ export function continueOrderFlow(text, ctx) {
       clearState(senderId);
       return { text: "Oke, pesanan dibatalkan 👍" };
     }
+    if (isOffScriptQuestion(text)) {
+      return { fallthrough: true, hint: getStepHint("confirm", state) };
+    }
     return { text: "Balas *ya* untuk konfirmasi pesanan, atau *batal* kalau gak jadi" };
   }
 
-  clearState(senderId);
-  return null;
+  return { fallthrough: true, hint: getStepHint(state.step, state) };
 }

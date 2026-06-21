@@ -399,11 +399,34 @@ export default async (lenwy, m, meta) => {
           }
         };
 
+        // Helper: AI answer with mid-flow hint, used when flow returns fallthrough
+        const aiWithHint = async (hint) => {
+          if (aiInFlight.has(normalizedSender)) return;
+          aiInFlight.add(normalizedSender);
+          try {
+            await lenwy.sendPresenceUpdate("composing", replyJid).catch(() => {});
+            const answer = await askBusinessAssistant(body, ownerId, normalizedSender);
+            await lenwy.sendPresenceUpdate("paused", replyJid).catch(() => {});
+            let reply = answer || "Maaf, saya kurang paham pertanyaannya 🙏";
+            if (hint) reply += "\n\n" + hint;
+            await lenwyreply(reply);
+          } finally {
+            aiInFlight.delete(normalizedSender);
+          }
+        };
+
         // 1. Active ticket flow continuation
         if (hasActiveTicketFlow(normalizedSender)) {
           const flowCtx = { senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer" };
           const result = continueTicketFlow(body, flowCtx);
-          if (result) { await lenwyreply(result); return; }
+          if (result) {
+            if (typeof result === "object" && result.fallthrough) {
+              await aiWithHint(result.hint);
+              return;
+            }
+            await lenwyreply(typeof result === "string" ? result : result.text);
+            return;
+          }
         }
 
         // 2. Active order flow continuation
@@ -412,6 +435,10 @@ export default async (lenwy, m, meta) => {
           const flowResult = continueOrderFlow(body, flowCtx);
 
           if (flowResult) {
+            if (flowResult.fallthrough) {
+              await aiWithHint(flowResult.hint);
+              return;
+            }
             await sendOrderResult(flowResult);
             return;
           }
