@@ -210,7 +210,7 @@ async function showPage(page) {
   const titles = {
     dashboard: "Dashboard", products: "Produk", orders: "Order", customers: "Customer",
     tickets: "Tiket Support", faq: "FAQ", templates: "Template", broadcast: "Broadcast",
-    agents: "Agents", vouchers: "Voucher", botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
+    agents: "Agents", vouchers: "Voucher", paymentmethods: "Pembayaran", botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
     clients: "Kelola Client", settings: "Pengaturan Bisnis",
   };
   document.getElementById("pageTitle").textContent = titles[page] || page;
@@ -225,6 +225,7 @@ async function showPage(page) {
     broadcast: "Kirim pesan massal ke semua atau sebagian customer.",
     agents: "Kelola agen CS yang menangani chat customer.",
     vouchers: "Buat dan kelola kode voucher/diskon untuk pelanggan.",
+    paymentmethods: "Atur metode pembayaran yang ditawarkan ke customer saat checkout.",
     botmanager: "Tambah, hapus, atau atur bot WhatsApp yang terhubung.",
     important: "Pesan masuk yang terdeteksi penting atau mendesak.",
     analytics: "Grafik dan statistik performa bot secara detail.",
@@ -247,6 +248,7 @@ async function showPage(page) {
       case "broadcast": await renderBroadcast(content); break;
       case "agents": await renderAgents(content); break;
       case "vouchers": await renderVouchers(content); break;
+      case "paymentmethods": await renderPaymentMethods(content); break;
       case "botmanager": await renderBotManager(content); break;
       case "important": await renderImportant(content); break;
       case "analytics": await renderAnalytics(content); break;
@@ -1265,7 +1267,7 @@ async function renderVouchers(el) {
 }
 
 function showAddVoucher() {
-  showModal(\`
+  showModal(`
     <h3 class="text-lg font-bold mb-4"><i class="fas fa-tags mr-2 text-orange-500"></i>Buat Voucher</h3>
     <div class="space-y-3">
       <div><label class="block text-sm font-medium mb-1">Kode Voucher *</label><input id="vCode" placeholder="DISKON10" style="text-transform:uppercase"></div>
@@ -1285,7 +1287,7 @@ function showAddVoucher() {
         <button onclick="closeModal()" class="btn btn-outline">Batal</button>
         <button onclick="saveVoucher()" class="btn btn-primary">Simpan</button>
       </div>
-    </div>\`);
+    </div>`);
 }
 
 async function saveVoucher() {
@@ -1303,23 +1305,88 @@ async function saveVoucher() {
 }
 
 async function delVoucher(id, code) {
-  if (!confirm(\`Hapus voucher "\${code}"?\`)) return;
-  await api(\`/api/vouchers/\${id}\`, { method: "DELETE" }); toast("Voucher dihapus"); showPage("vouchers");
+  if (!confirm(`Hapus voucher "${code}"?`)) return;
+  await api(`/api/vouchers/${id}`, { method: "DELETE" }); toast("Voucher dihapus"); showPage("vouchers");
+}
+
+// ===== PAYMENT METHODS =====
+const PAYMENT_TYPE_LABEL = { bank_transfer: "Transfer Bank", ewallet: "E-Wallet", cod: "COD", other: "Lainnya" };
+const PAYMENT_TYPE_ICON = { bank_transfer: "fa-building-columns", ewallet: "fa-wallet", cod: "fa-handshake", other: "fa-coins" };
+
+async function renderPaymentMethods(el) {
+  const methods = await api("/api/payment-methods");
+  el.innerHTML = `
+    <div class="flex justify-end mb-4"><button onclick="showAddPaymentMethod()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Tambah Metode</button></div>
+    <div class="card overflow-x-auto">
+      <table>
+        <thead><tr><th>Tipe</th><th>Nama</th><th>No. Rekening/Akun</th><th>Atas Nama</th><th>Instruksi</th><th>Aksi</th></tr></thead>
+        <tbody>${methods.map(m => `<tr>
+          <td><i class="fas ${PAYMENT_TYPE_ICON[m.type] || "fa-coins"} mr-1"></i>${PAYMENT_TYPE_LABEL[m.type] || m.type}</td>
+          <td class="font-medium">${m.name}</td>
+          <td class="font-mono">${m.account_number || "-"}</td>
+          <td>${m.account_name || "-"}</td>
+          <td class="text-xs">${m.instructions || "-"}</td>
+          <td><button onclick="delPaymentMethod(${m.id},'${m.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td>
+        </tr>`).join("")}</tbody>
+      </table>
+      ${methods.length === 0 ? '<p class="text-center py-8 text-gray-400">Belum ada metode pembayaran</p>' : ""}
+    </div>`;
+}
+
+function showAddPaymentMethod() {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-wallet mr-2 text-emerald-500"></i>Tambah Metode Pembayaran</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm font-medium mb-1">Nama Metode *</label><input id="pmName" placeholder="BCA, GoPay, dll"></div>
+      <div><label class="block text-sm font-medium mb-1">Tipe</label><select id="pmType">
+        <option value="bank_transfer">Transfer Bank</option>
+        <option value="ewallet">E-Wallet</option>
+        <option value="cod">COD</option>
+        <option value="other">Lainnya</option>
+      </select></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="block text-sm font-medium mb-1">No. Rekening/Akun</label><input id="pmNumber" placeholder="1234567890"></div>
+        <div><label class="block text-sm font-medium mb-1">Atas Nama</label><input id="pmAccountName" placeholder="Nama pemilik akun"></div>
+      </div>
+      <div><label class="block text-sm font-medium mb-1">Instruksi Tambahan</label><textarea id="pmInstructions" rows="2" placeholder="Konfirmasi setelah transfer ke admin ya"></textarea></div>
+      <div class="flex gap-2 justify-end mt-4">
+        <button onclick="closeModal()" class="btn btn-outline">Batal</button>
+        <button onclick="savePaymentMethod()" class="btn btn-primary">Simpan</button>
+      </div>
+    </div>`);
+}
+
+async function savePaymentMethod() {
+  const name = document.getElementById("pmName").value.trim();
+  if (!name) return toast("Nama metode wajib diisi", "error");
+  const data = {
+    name,
+    type: document.getElementById("pmType").value,
+    account_number: document.getElementById("pmNumber").value.trim(),
+    account_name: document.getElementById("pmAccountName").value.trim(),
+    instructions: document.getElementById("pmInstructions").value.trim(),
+  };
+  try { await api("/api/payment-methods", { method: "POST", body: data }); closeModal(); toast("Metode pembayaran ditambahkan"); showPage("paymentmethods"); } catch(e) { toast(e.message, "error"); }
+}
+
+async function delPaymentMethod(id, name) {
+  if (!confirm(`Hapus metode pembayaran "${name}"?`)) return;
+  await api(`/api/payment-methods/${id}`, { method: "DELETE" }); toast("Metode pembayaran dihapus"); showPage("paymentmethods");
 }
 
 // ===== PRODUCT VARIANTS =====
 async function showVariants(productId, productName) {
-  const variants = await api(\`/api/products/\${productId}/variants\`);
-  showModal(\`
-    <h3 class="text-lg font-bold mb-4"><i class="fas fa-palette mr-2 text-yellow-500"></i>Varian: \${productName}</h3>
+  const variants = await api(`/api/products/${productId}/variants`);
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-palette mr-2 text-yellow-500"></i>Varian: ${productName}</h3>
     <div id="variantList">
-      \${variants.length > 0 ? \`<table class="mb-4"><thead><tr><th>Nama Varian</th><th>SKU</th><th>+/- Harga</th><th>Stok</th><th>Aksi</th></tr></thead><tbody>\${variants.map(v => \`<tr>
-        <td>\${v.variant_name}</td>
-        <td class="font-mono text-xs">\${v.sku || "-"}</td>
-        <td>\${v.price_adjustment > 0 ? "+" + formatCurrency(v.price_adjustment) : v.price_adjustment < 0 ? formatCurrency(v.price_adjustment) : "-"}</td>
-        <td>\${v.stock}</td>
-        <td><button onclick="delVariant(\${v.id},\${productId},'\${productName.replace(/'/g, "\\\\'")}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button></td>
-      </tr>\`).join("")}</tbody></table>\` : '<p class="text-center py-4 text-gray-400 mb-4">Belum ada varian</p>'}
+      ${variants.length > 0 ? `<table class="mb-4"><thead><tr><th>Nama Varian</th><th>SKU</th><th>+/- Harga</th><th>Stok</th><th>Aksi</th></tr></thead><tbody>${variants.map(v => `<tr>
+        <td>${v.variant_name}</td>
+        <td class="font-mono text-xs">${v.sku || "-"}</td>
+        <td>${v.price_adjustment > 0 ? "+" + formatCurrency(v.price_adjustment) : v.price_adjustment < 0 ? formatCurrency(v.price_adjustment) : "-"}</td>
+        <td>${v.stock}</td>
+        <td><button onclick="delVariant(${v.id},${productId},'${productName.replace(/'/g, "\\'")}')" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-trash"></i></button></td>
+      </tr>`).join("")}</tbody></table>` : '<p class="text-center py-4 text-gray-400 mb-4">Belum ada varian</p>'}
     </div>
     <hr class="my-3">
     <h4 class="text-sm font-bold mb-2">Tambah Varian</h4>
@@ -1334,32 +1401,32 @@ async function showVariants(productId, productName) {
       </div>
       <div class="flex gap-2 justify-end">
         <button onclick="closeModal()" class="btn btn-outline">Tutup</button>
-        <button onclick="addVariantBtn(\${productId},'\${productName.replace(/'/g, "\\\\'")}')" class="btn btn-primary">Tambah</button>
+        <button onclick="addVariantBtn(${productId},'${productName.replace(/'/g, "\\'")}')" class="btn btn-primary">Tambah</button>
       </div>
-    </div>\`);
+    </div>`);
 }
 
 async function addVariantBtn(productId, productName) {
   const variant_name = document.getElementById("vrName").value.trim();
   if (!variant_name) return toast("Nama varian wajib diisi", "error");
   const data = { variant_name, sku: document.getElementById("vrSku").value || null, price_adjustment: parseFloat(document.getElementById("vrPrice").value) || 0, stock: parseInt(document.getElementById("vrStock").value) || 0 };
-  try { await api(\`/api/products/\${productId}/variants\`, { method: "POST", body: data }); toast("Varian ditambahkan"); showVariants(productId, productName); } catch(e) { toast(e.message, "error"); }
+  try { await api(`/api/products/${productId}/variants`, { method: "POST", body: data }); toast("Varian ditambahkan"); showVariants(productId, productName); } catch(e) { toast(e.message, "error"); }
 }
 
 async function delVariant(variantId, productId, productName) {
   if (!confirm("Hapus varian ini?")) return;
-  await api(\`/api/variants/\${variantId}\`, { method: "DELETE" }); toast("Varian dihapus"); showVariants(productId, productName);
+  await api(`/api/variants/${variantId}`, { method: "DELETE" }); toast("Varian dihapus"); showVariants(productId, productName);
 }
 
 // ===== CSV EXPORT =====
 async function exportCSV(type) {
   try {
-    const res = await fetch(\`/api/export/\${type}\`, { headers: { Authorization: \`Bearer \${token}\` } });
+    const res = await fetch(`/api/export/${type}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) throw new Error("Export failed");
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = \`\${type}_\${new Date().toISOString().slice(0,10)}.csv\`;
+    a.href = url; a.download = `${type}_${new Date().toISOString().slice(0,10)}.csv`;
     a.click(); URL.revokeObjectURL(url);
     toast("File CSV berhasil didownload");
   } catch(e) { toast("Gagal export: " + e.message, "error"); }

@@ -29,6 +29,7 @@ import db, {
   addVariant, getVariants, updateVariant, deleteVariant,
   createVoucher, getAllVouchers, deleteVoucher, validateVoucher,
   getLowStockProducts,
+  addPaymentMethod, getAllPaymentMethods, updatePaymentMethod, deletePaymentMethod,
 } from "../WhatsApp/database/business/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -750,6 +751,35 @@ export default function startDashboard() {
   app.post("/api/vouchers/validate", auth, (req, res) => {
     const result = validateVoucher(req.body.code, req.body.total || 0, getViewContext(req).ownerId);
     res.json(result);
+  });
+
+  // ===== PAYMENT METHODS =====
+  app.get("/api/payment-methods", auth, (req, res) => {
+    res.json(getAllPaymentMethods(getViewContext(req).ownerId));
+  });
+
+  app.post("/api/payment-methods", auth, (req, res) => {
+    try {
+      req.body.owner_id = getWriteOwnerId(req);
+      const m = addPaymentMethod(req.body);
+      res.json({ success: true, method: m });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/payment-methods/:id", auth, (req, res) => {
+    try {
+      updatePaymentMethod(parseInt(req.params.id), req.body);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/payment-methods/:id", auth, (req, res) => {
+    deletePaymentMethod(parseInt(req.params.id));
+    res.json({ success: true });
   });
 
   // ===== CSV EXPORT =====

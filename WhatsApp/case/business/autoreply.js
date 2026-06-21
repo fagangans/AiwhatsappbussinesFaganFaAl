@@ -57,13 +57,14 @@ export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pu
     text += `_${profile.away_message}_\n\n`;
   }
 
-  text += `📋 *Menu Tersedia:*\n`;
-  text += `• *.katalog* - Lihat produk\n`;
-  text += `• *.faq* - Pertanyaan umum\n`;
-  text += `• *.pesan* - Buat pesanan\n`;
-  text += `• *.buattiket* - Buat tiket support\n`;
-  text += `• *.cekorder* - Cek pesanan\n`;
-  text += `• *.menu* - Menu lengkap\n`;
+  text += `Saya bisa bantu kamu untuk:\n\n`;
+  text += `🛍️ *Lihat Katalog* — ketik "lihat produk" atau "ada barang apa aja"\n`;
+  text += `🛒 *Pesan Barang* — ketik "mau pesan" atau langsung sebut produknya\n`;
+  text += `📋 *Cek Pesanan* — ketik "cek pesanan saya"\n`;
+  text += `💳 *Info Pembayaran* — ketik "cara bayar gimana"\n`;
+  text += `❓ *Tanya-Tanya* — langsung tanya aja, misal "ada promo gak?"\n`;
+  text += `🎫 *Buat Tiket Support* — kalau ada keluhan, bilang aja "mau buat tiket"\n\n`;
+  text += `_Langsung chat aja ya, gak perlu pakai format khusus!_ 😊`;
 
   await lenwy.sendMessage(replyJid, { text }, { quoted: len });
   logMessage(customer.id, "out", text, "text", ownerId, botId);

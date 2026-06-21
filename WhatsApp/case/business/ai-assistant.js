@@ -81,13 +81,55 @@ function cleanResponse(text) {
 }
 
 const INTENT_PATTERNS = [
-  { intent: "menu", patterns: [/\b(lihat|tampil|kasih|mau|bisa)\b.*\b(menu|fitur|layanan|bantuan)\b/i, /\b(menu|fitur|layanan)\b.*\b(apa|aja|saja|nya)\b/i, /\bhelp\b/i] },
-  { intent: "katalog", patterns: [/\b(lihat|tampil|tunjuk|kasih|mau)\b.*\b(katalog|produk|barang|daftar.*produk|jualan)\b/i, /\b(produk|barang|jualan)\b.*\b(apa|aja|saja)\b/i, /\b(ada|punya|jual)\b.*\bapa\b/i] },
-  { intent: "pesan", patterns: [/\b(mau|ingin|pengen|mw)\b.*\b(pesan|order|beli|ambil)\b/i, /\b(cara|gimana|bagaimana)\b.*\b(pesan|order|beli)\b/i] },
-  { intent: "faq", patterns: [/\b(pertanyaan|tanya|faq)\b.*\b(umum|sering)\b/i, /\b(sering)\b.*\b(ditanya|tanyakan)\b/i] },
-  { intent: "cekorder", patterns: [/\b(cek|status|lacak|track|mana)\b.*\b(pesanan|order|orderan|paket|kiriman)\b/i, /\bpesanan\b.*\b(saya|ku|gw|gua|gue)\b/i] },
-  { intent: "buattiket", patterns: [/\b(buat|bikin|ajukan|kirim)\b.*\b(tiket|keluhan|komplain|laporan|aduan)\b/i, /\b(mau|ingin)\b.*\b(komplain|keluhan|lapor)\b/i] },
-  { intent: "bayar", patterns: [/\b(cara|gimana|bagaimana)\b.*\b(bayar|pembayaran|transfer)\b/i, /\b(info|informasi)\b.*\b(pembayaran|bayar|rekening)\b/i] },
+  { intent: "menu", patterns: [
+    /\b(lihat|tampil|kasih|mau|bisa|tolong)\b.*\b(menu|fitur|layanan|bantuan)\b/i,
+    /\b(menu|fitur|layanan)\b.*\b(apa|aja|saja|nya)\b/i,
+    /\bhelp\b/i,
+    /^menu$/i,
+    /\bbisa\s+(ngapain|apa)\b/i,
+    /\bkamu\s+bisa\b.*\bapa\b/i,
+  ] },
+  { intent: "katalog", patterns: [
+    /\b(lihat|tampil|tunjuk|kasih|mau|cek|show)\b.*\b(katalog|produk|barang|daftar.*produk|jualan|dagangan)\b/i,
+    /\b(produk|barang|jualan|dagangan)\b.*\b(apa|aja|saja|nya)\b/i,
+    /\b(ada|punya|jual)\b.*\bapa\b/i,
+    /^(katalog|produk|barang)$/i,
+    /\blist\s*(produk|barang)\b/i,
+  ] },
+  { intent: "pesan", patterns: [
+    /\b(mau|ingin|pengen|mw|mo|pen)\b.*\b(pesan|order|beli|ambil|checkout)\b/i,
+    /\b(cara|gimana|bagaimana)\b.*\b(pesan|order|beli)\b/i,
+    /\b(order|beli|pesan)\b.*\b(dong|ya|yuk|gan|kak|min)\b/i,
+    /^(pesan|order|beli)$/i,
+  ] },
+  { intent: "faq", patterns: [
+    /\b(pertanyaan|tanya|faq)\b.*\b(umum|sering)\b/i,
+    /\b(sering)\b.*\b(ditanya|tanyakan)\b/i,
+    /^faq$/i,
+    /\bfaq\b.*\b(apa|nya|list)\b/i,
+    /\b(ada|punya)\b.*\b(faq|pertanyaan)\b/i,
+  ] },
+  { intent: "cekorder", patterns: [
+    /\b(cek|status|lacak|track|mana|dimana)\b.*\b(pesanan|order|orderan|paket|kiriman)\b/i,
+    /\bpesanan\b.*\b(saya|ku|gw|gua|gue|aku)\b/i,
+    /\border\b.*\b(saya|ku|gw|gua|gue|aku)\b/i,
+    /\b(cek|lihat)\b.*\bord-/i,
+    /^cek\s*(order|pesanan)$/i,
+  ] },
+  { intent: "buattiket", patterns: [
+    /\b(buat|bikin|ajukan|kirim|mau|ingin|pengen)\b.*\b(tiket|keluhan|komplain|laporan|aduan|report)\b/i,
+    /\b(mau|ingin|pengen)\b.*\b(komplain|keluhan|lapor|ngadu)\b/i,
+    /\b(ada|punya)\b.*\b(keluhan|masalah|kendala|problem|issue)\b/i,
+    /\b(keluhan|komplain|complain)\b/i,
+    /^(tiket|komplain|keluhan|lapor)$/i,
+  ] },
+  { intent: "bayar", patterns: [
+    /\b(cara|gimana|bagaimana|info)\b.*\b(bayar|pembayaran|transfer|kirim\s*uang)\b/i,
+    /\b(info|informasi)\b.*\b(pembayaran|bayar|rekening|bank|ewallet)\b/i,
+    /\b(metode|cara)\b.*\b(bayar|pembayaran)\b/i,
+    /\b(rekening|norek|no\s*rek|transfer\s*kemana)\b/i,
+    /\b(bayar|pembayaran)\b.*\b(gimana|kemana|ke\s*mana)\b/i,
+  ] },
 ];
 
 export function detectIntent(text) {

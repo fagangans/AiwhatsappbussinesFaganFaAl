@@ -22,8 +22,13 @@ import "./database/Menu/LenwyMenu.js";
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
 import { askBusinessAssistant, detectIntent } from "./case/business/ai-assistant.js";
 import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow } from "./case/business/order-flow.js";
+import { hasActiveTicketFlow, startTicketFlow, continueTicketFlow } from "./case/business/ticket-flow.js";
 import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
-import { getProfile, getLowStockProducts } from "./database/business/db.js";
+import {
+  getProfile, getLowStockProducts, searchFaq, getAllFaq,
+  getOrCreateCustomer, getCustomerOrders, getAllProducts, getAllPaymentMethods,
+} from "./database/business/db.js";
+import { formatCurrency, formatOrderStatus } from "./database/business/helpers.js";
 
 // [ ===== Import Pustaka ===== ]
 import fs from "fs";
@@ -378,6 +383,14 @@ export default async (lenwy, m, meta) => {
     if (!isGroup && !sentWelcome && !sentAway) {
       const profile = getProfile(ownerId);
       if (profile.ai_enabled) {
+        // 1. Active ticket flow continuation
+        if (hasActiveTicketFlow(normalizedSender)) {
+          const flowCtx = { senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer" };
+          const result = continueTicketFlow(body, flowCtx);
+          if (result) await lenwyreply(result);
+          return;
+        }
+        // 2. Active order flow continuation
         if (hasActiveOrderFlow(normalizedSender)) {
           const flowResult = continueOrderFlow(body, {
             senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
@@ -397,7 +410,10 @@ export default async (lenwy, m, meta) => {
           }
           return;
         }
+        // 3. Intent detection
         const intent = detectIntent(body);
+
+        // 4. Order flow
         if (intent === "pesan") {
           const flowResult = startOrderFlow(body, {
             senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
@@ -409,38 +425,111 @@ export default async (lenwy, m, meta) => {
           }
           return;
         }
-        if (intent === "menu") {
-          let casePath = path.join(__dirname, "case");
-          let folders = fs
-            .readdirSync(casePath)
-            .filter((v) => fs.statSync(path.join(casePath, v)).isDirectory());
-          let text = globalThis.lenwymenu || "*📂 Daftar Menu*\n";
-          text += "\n*[ Available Categories ]*\n";
-          folders.sort((a, b) => a.localeCompare(b)).forEach((folder) => {
-            text += `*[+] ${folder.toUpperCase()}MENU*\n`;
+
+        // 5. Ticket flow
+        if (intent === "buattiket") {
+          const result = startTicketFlow(body, {
+            senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
           });
-          await lenwyreply(`${text}`);
+          await lenwyreply(result);
           return;
         }
-        if (intent && commands.has(intent)) {
-          const pluginData = commands.get(intent);
-          const { execute, info } = pluginData;
-          if (info.enabled !== false && !info.maintenance) {
-            const iLenwyText = (text) => lenwy.sendMessage(replyJid, { text }, { quoted: len });
-            const iLenwyVideo = (url, caption = "") => lenwy.sendMessage(replyJid, { video: { url }, caption }, { quoted: len });
-            const iLenwyImage = (url, caption = "") => lenwy.sendMessage(replyJid, { image: { url }, caption }, { quoted: len });
-            const iLenwyAudio = (url, ptt = false) => lenwy.sendMessage(replyJid, { audio: { url }, mimetype: "audio/mpeg", ptt }, { quoted: len });
-            const iLenwyFile = (url, mimetype, fileName) => lenwy.sendMessage(replyJid, { document: { url }, mimetype, fileName }, { quoted: len });
-            await execute({
-              command: intent, args: [], q: "", lenwy, m, msg, len,
-              replyJid, senderJid, lenwyreply, LenwyText: iLenwyText, LenwyWait: () => lenwyreply(globalThis.mess.wait),
-              LenwyVideo: iLenwyVideo, LenwyImage: iLenwyImage, LenwyAudio: iLenwyAudio, LenwyFile: iLenwyFile,
-              isGroup, isAdmin: false, isBotAdmin: false, isPremium: false, isLenwy: false,
-              plugins, commands, normalizedSender, deleteMessage, ownerId, botId,
+
+        // 6. Natural FAQ
+        if (intent === "faq") {
+          const faqs = getAllFaq(ownerId) || [];
+          if (faqs.length === 0) {
+            await lenwyreply("Belum ada FAQ yang tersedia saat ini 🙏");
+          } else {
+            let text = "Pertanyaan yang sering ditanyakan:\n\n";
+            faqs.slice(0, 10).forEach((f, i) => {
+              text += `${i + 1}. *${f.question}*\n${f.answer}\n\n`;
             });
-            return;
+            text += "_Langsung tanya aja kalau ada yang mau ditanyakan ya!_ 😊";
+            await lenwyreply(text);
           }
+          return;
         }
+
+        // 7. Natural cek order
+        if (intent === "cekorder") {
+          const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+          const orders = getCustomerOrders(customer.id) || [];
+          if (orders.length === 0) {
+            await lenwyreply("Kamu belum punya pesanan nih. Mau pesan sesuatu? Langsung bilang aja ya! 😊");
+          } else {
+            let text = "Pesanan kamu:\n\n";
+            orders.slice(0, 5).forEach((o, i) => {
+              const statusMap = { pending: "⏳ Menunggu", confirmed: "✅ Dikonfirmasi", processing: "🔄 Diproses", shipped: "🚚 Dikirim", delivered: "📦 Selesai", cancelled: "❌ Dibatalkan" };
+              text += `${i + 1}. *${o.order_number}*\n`;
+              text += `   Status: ${statusMap[o.status] || o.status}\n`;
+              text += `   Total: ${formatCurrency(o.total)}\n`;
+              text += `   Tanggal: ${new Date(o.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}\n\n`;
+            });
+            if (orders.length > 5) text += `_...dan ${orders.length - 5} pesanan lainnya_\n\n`;
+            text += "_Mau cek detail pesanan tertentu? Sebutin aja nomor ordernya ya!_ 😊";
+            await lenwyreply(text);
+          }
+          return;
+        }
+
+        // 8. Payment info
+        if (intent === "bayar") {
+          const methods = getAllPaymentMethods(ownerId) || [];
+          if (methods.length === 0) {
+            await lenwyreply("Info pembayaran belum diatur. Silakan hubungi kami langsung ya! 🙏");
+          } else {
+            let text = "Metode pembayaran yang tersedia:\n\n";
+            methods.forEach((m, i) => {
+              const icon = m.type === "bank_transfer" ? "🏦" : m.type === "ewallet" ? "💳" : m.type === "cod" ? "🤝" : "💰";
+              text += `${icon} *${m.name}*\n`;
+              if (m.account_number) text += `   No. Rek: ${m.account_number}\n`;
+              if (m.account_name) text += `   A/N: ${m.account_name}\n`;
+              if (m.instructions) text += `   ${m.instructions}\n`;
+              text += "\n";
+            });
+            text += "_Setelah transfer, kirim bukti pembayaran ya!_ 😊";
+            await lenwyreply(text);
+          }
+          return;
+        }
+
+        // 9. Katalog
+        if (intent === "katalog") {
+          const products = getAllProducts(null, ownerId) || [];
+          if (products.length === 0) {
+            await lenwyreply("Belum ada produk yang tersedia saat ini 🙏");
+          } else {
+            let text = "Produk yang tersedia:\n\n";
+            products.slice(0, 15).forEach((p, i) => {
+              text += `${i + 1}. *${p.name}* — ${formatCurrency(p.discount_price > 0 ? p.discount_price : p.price)}`;
+              if (p.discount_price > 0) text += ` ~~${formatCurrency(p.price)}~~`;
+              if (p.stock <= 0) text += " _(habis)_";
+              text += "\n";
+            });
+            if (products.length > 15) text += `\n_...dan ${products.length - 15} produk lainnya_`;
+            text += "\n\n_Mau pesan? Langsung bilang aja, misal \"mau pesan [nama produk]\"_ 😊";
+            await lenwyreply(text);
+          }
+          return;
+        }
+
+        // 10. Menu
+        if (intent === "menu") {
+          const greeting = new Date().getHours() < 12 ? "Pagi" : new Date().getHours() < 15 ? "Siang" : new Date().getHours() < 18 ? "Sore" : "Malam";
+          let text = `Selamat ${greeting}! Saya bisa bantu kamu untuk:\n\n`;
+          text += `🛍️ *Lihat Katalog* — ketik "lihat produk" atau "ada barang apa aja"\n`;
+          text += `🛒 *Pesan Barang* — ketik "mau pesan" atau langsung sebut produknya\n`;
+          text += `📋 *Cek Pesanan* — ketik "cek pesanan saya"\n`;
+          text += `💳 *Info Pembayaran* — ketik "cara bayar" atau "info pembayaran"\n`;
+          text += `❓ *Tanya-Tanya* — langsung tanya aja, misal "ada promo gak?"\n`;
+          text += `🎫 *Buat Tiket Support* — kalau ada keluhan, bilang aja "mau buat tiket"\n\n`;
+          text += `_Langsung chat aja ya, gak perlu pakai format khusus!_ 😊`;
+          await lenwyreply(text);
+          return;
+        }
+
+        // 11. AI assistant fallback
         if (!aiInFlight.has(normalizedSender)) {
           aiInFlight.add(normalizedSender);
           try {
@@ -448,7 +537,7 @@ export default async (lenwy, m, meta) => {
             const answer = await askBusinessAssistant(body, ownerId, normalizedSender);
             await lenwy.sendPresenceUpdate("paused", replyJid).catch(() => {});
             await lenwyreply(
-              answer || `Maaf, asisten sedang tidak tersedia. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
+              answer || `Maaf, asisten sedang tidak tersedia. 🙏\n\nKetik "menu" untuk lihat layanan yang tersedia.`,
             );
           } finally {
             aiInFlight.delete(normalizedSender);
@@ -460,7 +549,7 @@ export default async (lenwy, m, meta) => {
           lastFallbackReply.set(normalizedSender, Date.now());
           setTimeout(() => lastFallbackReply.delete(normalizedSender), 60000);
           await lenwyreply(
-            `Maaf, saya tidak mengerti pesan teks bebas. 🙏\n\nKetik *.menu* untuk lihat daftar perintah yang tersedia.`,
+            `Maaf, saya tidak mengerti pesan teks bebas. 🙏\n\nKetik "menu" untuk lihat layanan yang tersedia.`,
           );
         }
       }

@@ -283,6 +283,18 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     UNIQUE(code, owner_id)
   );
+
+  CREATE TABLE IF NOT EXISTS payment_methods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    name TEXT NOT NULL,
+    type TEXT DEFAULT 'bank_transfer',
+    account_number TEXT DEFAULT '',
+    account_name TEXT DEFAULT '',
+    instructions TEXT DEFAULT '',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // === MIGRATION FOR EXISTING INSTALLS ===
@@ -488,6 +500,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_variants_product ON product_variants(product_id);
   CREATE INDEX IF NOT EXISTS idx_vouchers_owner ON vouchers(owner_id);
   CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
+  CREATE INDEX IF NOT EXISTS idx_payment_methods_owner ON payment_methods(owner_id);
 `);
 
 const adminProfile = db.prepare("SELECT COUNT(*) as c FROM business_profile WHERE owner_id = 1").get();
@@ -638,11 +651,11 @@ function generateOrderNumber() {
   return `ORD-${y}${m}${day}-${String(count + 1).padStart(4, "0")}`;
 }
 
-export function createOrder(customerId, items, total, notes = "", shippingAddress = "", ownerId = 1, botId = "") {
+export function createOrder(customerId, items, total, notes = "", shippingAddress = "", ownerId = 1, botId = "", paymentMethod = "") {
   const orderNumber = generateOrderNumber();
   const itemsJson = JSON.stringify(items);
   const subtotal = items.reduce((s, i) => s + (i.price * i.qty), 0);
-  db.prepare("INSERT INTO orders (order_number, customer_id, items, subtotal, total, notes, shipping_address, owner_id, bot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(orderNumber, customerId, itemsJson, subtotal, total, notes, shippingAddress, ownerId, botId || "");
+  db.prepare("INSERT INTO orders (order_number, customer_id, items, subtotal, total, notes, shipping_address, owner_id, bot_id, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(orderNumber, customerId, itemsJson, subtotal, total, notes, shippingAddress, ownerId, botId || "", paymentMethod || "");
   db.prepare("UPDATE customers SET total_orders = total_orders + 1 WHERE id = ?").run(customerId);
   for (const item of items) {
     if (item.product_id) {
@@ -1180,4 +1193,27 @@ export function getDeliveredOrdersForFollowup(ownerId = null) {
 
 export function markFollowupSent(orderNumber) {
   db.prepare("UPDATE orders SET notes = notes || ' [followup_sent]' WHERE order_number = ?").run(orderNumber);
+}
+
+// === PAYMENT METHODS ===
+export function addPaymentMethod(data) {
+  db.prepare("INSERT INTO payment_methods (name, type, account_number, account_name, instructions, owner_id) VALUES (?, ?, ?, ?, ?, ?)").run(data.name, data.type || "bank_transfer", data.account_number || "", data.account_name || "", data.instructions || "", data.owner_id || 1);
+  return db.prepare("SELECT * FROM payment_methods ORDER BY id DESC LIMIT 1").get();
+}
+
+export function getAllPaymentMethods(ownerId = null) {
+  if (ownerId) return db.prepare("SELECT * FROM payment_methods WHERE owner_id = ? AND is_active = 1 ORDER BY name").all(ownerId);
+  return db.prepare("SELECT * FROM payment_methods WHERE is_active = 1 ORDER BY name").all();
+}
+
+export function deletePaymentMethod(id) {
+  db.prepare("UPDATE payment_methods SET is_active = 0 WHERE id = ?").run(id);
+}
+
+export function updatePaymentMethod(id, data) {
+  const fields = Object.keys(data).filter(k => k !== "id" && k !== "owner_id");
+  if (fields.length === 0) return;
+  const sets = fields.map(f => `${f} = @${f}`).join(", ");
+  data.id = id;
+  db.prepare(`UPDATE payment_methods SET ${sets} WHERE id = @id`).run(data);
 }

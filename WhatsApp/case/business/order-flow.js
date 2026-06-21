@@ -1,4 +1,4 @@
-import { getOrCreateCustomer, createOrder, getAllProducts, searchProducts, getVariants, validateVoucher, useVoucher } from "../../database/business/db.js";
+import { getOrCreateCustomer, createOrder, getAllProducts, searchProducts, getVariants, validateVoucher, useVoucher, getAllPaymentMethods } from "../../database/business/db.js";
 import { formatCurrency } from "../../database/business/helpers.js";
 
 const orderFlowState = new Map();
@@ -231,11 +231,38 @@ export function continueOrderFlow(text, ctx) {
       discount = result.discount;
       voucherCode = code;
     }
-    setState(senderId, { ...state, step: "confirm", discount, voucherCode });
-    const { text: sumText } = cartSummary(state.cart);
-    let confirm = `Konfirmasi pesanan:\n${sumText}\n`;
-    if (discount > 0) confirm += `Diskon (${voucherCode}): -${formatCurrency(discount)}\n*Grand Total: ${formatCurrency(total - discount)}*\n`;
+    const methods = getAllPaymentMethods(ownerId) || [];
+    if (methods.length === 0) {
+      setState(senderId, { ...state, step: "confirm", discount, voucherCode });
+      let confirm = `Konfirmasi pesanan:\n${cartSummary(state.cart).text}\n`;
+      if (discount > 0) confirm += `Diskon (${voucherCode}): -${formatCurrency(discount)}\n*Grand Total: ${formatCurrency(total - discount)}*\n`;
+      if (state.notes) confirm += `Catatan: ${state.notes}\n`;
+      confirm += `\nBalas *ya* untuk buat pesanan, atau *batal* untuk membatalkan.`;
+      return { text: confirm };
+    }
+    setState(senderId, { ...state, step: "payment", discount, voucherCode });
+    let pText = `Mau bayar pakai metode apa?\n`;
+    methods.forEach((m, i) => {
+      pText += `${i + 1}. ${m.name}\n`;
+    });
+    pText += `\nBalas nomor atau nama metodenya ya.`;
+    return { text: pText };
+  }
+
+  if (state.step === "payment") {
+    const methods = getAllPaymentMethods(ownerId) || [];
+    const idx = parseInt(text.trim());
+    let method = !isNaN(idx) && idx >= 1 && idx <= methods.length ? methods[idx - 1] : methods.find(m => text.toLowerCase().includes(m.name.toLowerCase()));
+    if (!method) {
+      return { text: "Metode pembayaran tidak ditemukan, coba balas nomor atau nama metodenya lagi." };
+    }
+    setState(senderId, { ...state, step: "confirm", paymentMethod: method });
+    const { total } = cartSummary(state.cart);
+    const discount = state.discount || 0;
+    let confirm = `Konfirmasi pesanan:\n${cartSummary(state.cart).text}\n`;
+    if (discount > 0) confirm += `Diskon (${state.voucherCode}): -${formatCurrency(discount)}\n*Grand Total: ${formatCurrency(total - discount)}*\n`;
     if (state.notes) confirm += `Catatan: ${state.notes}\n`;
+    confirm += `Pembayaran: ${method.name}\n`;
     confirm += `\nBalas *ya* untuk buat pesanan, atau *batal* untuk membatalkan.`;
     return { text: confirm };
   }
@@ -254,10 +281,18 @@ export function continueOrderFlow(text, ctx) {
         "",
         ownerId,
         botId,
+        state.paymentMethod?.name || "",
       );
       if (state.voucherCode) useVoucher(state.voucherCode, ownerId);
       clearState(senderId);
-      return { text: `Pesanan berhasil dibuat! 🎉\n\nNo. Order: *${order.order_number}*\nTotal: ${formatCurrency(grandTotal)}\n\nKetik *.cekorder ${order.order_number}* buat cek status ya.`, order, customerName: customer.name || pushName || "Customer" };
+      let doneText = `Pesanan berhasil dibuat! 🎉\n\nNo. Order: *${order.order_number}*\nTotal: ${formatCurrency(grandTotal)}\n`;
+      if (state.paymentMethod) {
+        doneText += `Pembayaran: ${state.paymentMethod.name}\n`;
+        if (state.paymentMethod.account_number) doneText += `No. Rekening/Akun: ${state.paymentMethod.account_number}${state.paymentMethod.account_name ? ` (${state.paymentMethod.account_name})` : ""}\n`;
+        if (state.paymentMethod.instructions) doneText += `${state.paymentMethod.instructions}\n`;
+      }
+      doneText += `\nKetik *.cekorder ${order.order_number}* buat cek status ya.`;
+      return { text: doneText, order, customerName: customer.name || pushName || "Customer" };
     }
     if (isNo(text)) {
       clearState(senderId);
