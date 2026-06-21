@@ -24,6 +24,7 @@ import { askBusinessAssistant, detectIntent } from "./case/business/ai-assistant
 import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow, pauseOrderFlow, getOrderFlowState } from "./case/business/order-flow.js";
 import { hasActiveTicketFlow, startTicketFlow, continueTicketFlow } from "./case/business/ticket-flow.js";
 import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
+import { replySend } from "./case/business/rate-limiter.js";
 import {
   getProfile, getLowStockProducts, searchFaq, getAllFaq,
   getOrCreateCustomer, getCustomerOrders, getAllProducts, getAllPaymentMethods,
@@ -301,7 +302,7 @@ export default async (lenwy, m, meta) => {
 
   // Custom Reply
   const lenwyreply = async (teks) => {
-    const result = await lenwy.sendMessage(replyJid, { text: teks }, { quoted: len });
+    const result = await replySend(lenwy, replyJid, { text: teks }, { quoted: len });
     console.log(chalk.cyan.bold(`[${botId || "Bot"}] Bot Balas`), chalk.white(`-> ${replyJid} : ${teks}`));
     return result;
   };
@@ -433,7 +434,7 @@ export default async (lenwy, m, meta) => {
         const sendOrderResult = async (flowResult) => {
           if (!flowResult) return;
           if (flowResult.imageUrl) {
-            try { await lenwy.sendMessage(replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }); } catch (_) { await lenwyreply(flowResult.text); }
+            try { await replySend(lenwy, replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }); } catch (_) { await lenwyreply(flowResult.text); }
           } else {
             await lenwyreply(flowResult.text);
           }
@@ -815,21 +816,22 @@ export default async (lenwy, m, meta) => {
 
   // Helper
   const LenwyText = (text) =>
-    lenwy.sendMessage(replyJid, { text }, { quoted: len });
+    replySend(lenwy, replyJid, { text }, { quoted: len });
 
   const LenwyWait = () => lenwyreply(globalThis.mess.wait);
 
   // Send Video
   const LenwyVideo = (url, caption = "") =>
-    lenwy.sendMessage(replyJid, { video: { url }, caption }, { quoted: len });
+    replySend(lenwy, replyJid, { video: { url }, caption }, { quoted: len });
 
   // Send Image
   const LenwyImage = (url, caption = "") =>
-    lenwy.sendMessage(replyJid, { image: { url }, caption }, { quoted: len });
+    replySend(lenwy, replyJid, { image: { url }, caption }, { quoted: len });
 
   // Send Audio
   const LenwyAudio = (url, ptt = false) =>
-    lenwy.sendMessage(
+    replySend(
+      lenwy,
       replyJid,
       { audio: { url }, mimetype: "audio/mpeg", ptt },
       { quoted: len },
@@ -837,7 +839,8 @@ export default async (lenwy, m, meta) => {
 
   // Send File
   const LenwyFile = (buffer, fileName, mime) =>
-    lenwy.sendMessage(
+    replySend(
+      lenwy,
       replyJid,
       { document: buffer, fileName, mimetype: mime },
       { quoted: len },
