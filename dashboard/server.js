@@ -204,6 +204,30 @@ export default function startDashboard() {
     res.json(dbBots.map(b => ({ ...b, connected: waSockets.has(b.id) })));
   });
 
+  // Minta pairing code dari Baileys untuk { id, name, phone, owner_id }, dengan timeout 30s
+  function requestPairingCode({ id, name, phone, owner_id }) {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Timeout menunggu pairing code")), 30000);
+      app.connectBot({
+        id,
+        name,
+        phone,
+        owner_id,
+        onPairingCode: (code) => {
+          clearTimeout(timeout);
+          resolve({ code });
+        },
+        onPairingError: (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        },
+      }).catch(err => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
   app.post("/api/bots/add", auth, async (req, res) => {
     const { name, phone } = req.body;
     if (!name || !phone) return res.status(400).json({ error: "Nama dan nomor telepon wajib diisi" });
@@ -219,32 +243,44 @@ export default function startDashboard() {
     }
 
     try {
-      const result = await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Timeout menunggu pairing code")), 30000);
-        app.connectBot({
-          id: botId,
-          name,
-          phone: cleanPhone,
-          owner_id: ownerId,
-          onPairingCode: (code) => {
-            clearTimeout(timeout);
-            resolve({ code });
-          },
-          onPairingError: (err) => {
-            clearTimeout(timeout);
-            reject(err);
-          },
-        }).catch(err => {
-          clearTimeout(timeout);
-          reject(err);
-        });
-      });
+      const result = await requestPairingCode({ id: botId, name, phone: cleanPhone, owner_id: ownerId });
       res.json({ success: true, botId, pairingCode: result.code });
     } catch (e) {
       app.stopBot?.(botId);
       waSockets.delete(botId);
       deleteBot(botId);
       res.status(500).json({ error: "Gagal menghubungkan bot: " + e.message });
+    }
+  });
+
+  // Minta ulang pairing code untuk bot yang sudah ada tapi belum/tidak terhubung
+  // (misal kode pairing pertama kelewat waktu) — tanpa hapus bot & buat baru
+  app.post("/api/bots/:id/pairing-code", auth, async (req, res) => {
+    const bot = getBot(req.params.id);
+    if (!bot) return res.status(404).json({ error: "Bot tidak ditemukan" });
+    if (req.user.role !== "admin" && bot.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Tidak bisa mengelola bot milik orang lain" });
+    }
+    if (waSockets.has(bot.id)) {
+      return res.status(400).json({ error: "Bot sudah terhubung, tidak perlu pairing ulang" });
+    }
+    if (!app.connectBot) {
+      return res.status(503).json({ error: "Sistem bot belum siap, coba lagi nanti" });
+    }
+
+    app.stopBot?.(bot.id);
+    waSockets.delete(bot.id);
+
+    const sessionPath = path.resolve(__dirname, "../sessions", bot.id);
+    if (fs.existsSync(sessionPath)) {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+    }
+
+    try {
+      const result = await requestPairingCode({ id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id });
+      res.json({ success: true, pairingCode: result.code });
+    } catch (e) {
+      res.status(500).json({ error: "Gagal mendapatkan kode pairing: " + e.message });
     }
   });
 

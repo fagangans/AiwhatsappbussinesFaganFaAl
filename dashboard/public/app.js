@@ -1081,6 +1081,7 @@ async function renderBotManager(el) {
             <p>Dibuat: ${formatDate(b.created_at)}</p>
           </div>
           <div class="mt-3 space-y-2">
+            ${!b.connected ? `<button onclick="requestPairingAgain('${b.id}','${b.name}')" class="btn btn-primary text-xs w-full"><i class="fas fa-qrcode mr-1"></i>Minta Kode Pairing Lagi</button>` : ""}
             ${userRole === "admin" ? `<button onclick="manageBotAccess('${b.id}','${b.name}')" class="btn btn-outline text-xs w-full"><i class="fas fa-share-alt mr-1"></i>Kelola Akses Client</button>` : ""}
             <button onclick="deleteBot('${b.id}','${b.name}')" class="btn btn-danger text-xs w-full"><i class="fas fa-trash mr-1"></i>Hapus Bot</button>
           </div>
@@ -1146,6 +1147,59 @@ async function startPairing() {
     document.getElementById("pairingErrorMsg").textContent = e.message || "Gagal memulai pairing";
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-link mr-1"></i>Mulai Pairing';
+  }
+}
+
+function requestPairingAgain(id, name) {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-qrcode mr-2 text-green-500"></i>Pairing Ulang: ${name}</h3>
+    <div class="space-y-3">
+      <p class="text-xs text-gray-400">Bot belum/tidak terhubung. Klik tombol di bawah untuk minta kode pairing baru, lalu masukkan di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat sebelum kode kedaluwarsa.</p>
+      <div id="repairResult" class="hidden">
+        <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+          <p class="text-sm text-green-800 mb-2">Pairing Code:</p>
+          <p class="text-3xl font-bold text-green-700 tracking-widest" id="repairCode"></p>
+          <p class="text-xs text-green-600 mt-2">Masukkan code ini di WhatsApp kamu</p>
+        </div>
+      </div>
+      <div id="repairError" class="hidden">
+        <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+          <p class="text-sm text-red-700" id="repairErrorMsg"></p>
+        </div>
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="btn btn-outline">Tutup</button>
+        <button onclick="startRepair('${id}')" id="btnStartRepair" class="btn btn-primary"><i class="fas fa-link mr-1"></i>Minta Kode Pairing</button>
+      </div>
+    </div>`);
+}
+
+async function startRepair(id) {
+  const btn = document.getElementById("btnStartRepair");
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menunggu...';
+  document.getElementById("repairResult").classList.add("hidden");
+  document.getElementById("repairError").classList.add("hidden");
+
+  try {
+    const res = await api(`/api/bots/${id}/pairing-code`, { method: "POST" });
+    if (res.error) {
+      document.getElementById("repairError").classList.remove("hidden");
+      document.getElementById("repairErrorMsg").textContent = res.error;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-link mr-1"></i>Minta Kode Pairing';
+      return;
+    }
+    document.getElementById("repairResult").classList.remove("hidden");
+    document.getElementById("repairCode").textContent = res.pairingCode;
+    btn.innerHTML = '<i class="fas fa-check mr-1"></i>Code Diterima';
+    toast("Pairing code baru berhasil dibuat! Masukkan di WhatsApp.", "success");
+    loadBots();
+  } catch (e) {
+    document.getElementById("repairError").classList.remove("hidden");
+    document.getElementById("repairErrorMsg").textContent = e.message || "Gagal minta kode pairing";
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-link mr-1"></i>Minta Kode Pairing';
   }
 }
 
