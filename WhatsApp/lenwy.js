@@ -21,6 +21,7 @@ import "./database/Menu/LenwyMenu.js";
 // [ ===== Business Module ===== ]
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
 import { askBusinessAssistant, detectIntent } from "./case/business/ai-assistant.js";
+import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow } from "./case/business/order-flow.js";
 import { getProfile } from "./database/business/db.js";
 
 // [ ===== Import Pustaka ===== ]
@@ -367,7 +368,21 @@ export default async (lenwy, m, meta) => {
     if (!isGroup && !sentWelcome && !sentAway) {
       const profile = getProfile(ownerId);
       if (profile.ai_enabled) {
+        if (hasActiveOrderFlow(normalizedSender)) {
+          const flowReply = continueOrderFlow(body, {
+            senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
+          });
+          if (flowReply) await lenwyreply(flowReply);
+          return;
+        }
         const intent = detectIntent(body);
+        if (intent === "pesan") {
+          const flowReply = startOrderFlow(body, {
+            senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
+          });
+          await lenwyreply(flowReply);
+          return;
+        }
         if (intent === "menu") {
           let casePath = path.join(__dirname, "case");
           let folders = fs
