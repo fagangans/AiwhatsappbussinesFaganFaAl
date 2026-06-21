@@ -200,11 +200,18 @@ function showDashboard() {
 
 function toggleSidebar() {
   document.getElementById("sidebar").classList.toggle("open");
+  document.getElementById("sidebarBackdrop").classList.toggle("open");
+}
+
+function closeSidebar() {
+  document.getElementById("sidebar").classList.remove("open");
+  document.getElementById("sidebarBackdrop").classList.remove("open");
 }
 
 // ===== PAGE ROUTER =====
 async function showPage(page) {
   currentPage = page;
+  closeSidebar();
   document.querySelectorAll(".sidebar-link").forEach(l => l.classList.remove("active"));
   document.querySelector(`[data-page="${page}"]`)?.classList.add("active");
   const titles = {
@@ -372,11 +379,11 @@ function showAddProduct() {
       <div><label class="block text-sm font-medium mb-1">SKU</label><input id="pSku" placeholder="KP001"></div>
       <div><label class="block text-sm font-medium mb-1">Nama *</label><input id="pName" placeholder="Nama Produk"></div>
       <div><label class="block text-sm font-medium mb-1">Deskripsi</label><textarea id="pDesc" rows="2" placeholder="Deskripsi produk"></textarea></div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Harga *</label><input id="pPrice" type="number" placeholder="50000"></div>
         <div><label class="block text-sm font-medium mb-1">Harga Diskon</label><input id="pDiscount" type="number" placeholder="0"></div>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Stok</label><input id="pStock" type="number" placeholder="100"></div>
         <div><label class="block text-sm font-medium mb-1">Kategori</label><input id="pCategory" placeholder="Umum"></div>
       </div>
@@ -401,11 +408,11 @@ async function editProduct(id) {
       <div><label class="block text-sm font-medium mb-1">SKU</label><input id="pSku" value="${p.sku||""}"></div>
       <div><label class="block text-sm font-medium mb-1">Nama *</label><input id="pName" value="${p.name}"></div>
       <div><label class="block text-sm font-medium mb-1">Deskripsi</label><textarea id="pDesc" rows="2">${p.description||""}</textarea></div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Harga *</label><input id="pPrice" type="number" value="${p.price}"></div>
         <div><label class="block text-sm font-medium mb-1">Harga Diskon</label><input id="pDiscount" type="number" value="${p.discount_price||0}"></div>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Stok</label><input id="pStock" type="number" value="${p.stock}"></div>
         <div><label class="block text-sm font-medium mb-1">Kategori</label><input id="pCategory" value="${p.category}"></div>
       </div>
@@ -897,7 +904,7 @@ async function renderSettings(el) {
           <div><label class="block text-sm font-medium mb-1">Deskripsi</label><textarea id="sDesc" rows="2">${p.description||""}</textarea></div>
           <div><label class="block text-sm font-medium mb-1">Kategori</label><input id="sCat" value="${p.category||""}"></div>
           <div><label class="block text-sm font-medium mb-1">Alamat</label><textarea id="sAddr" rows="2">${p.address||""}</textarea></div>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div><label class="block text-sm font-medium mb-1">Email</label><input id="sEmail" value="${p.email||""}"></div>
             <div><label class="block text-sm font-medium mb-1">Telepon</label><input id="sPhone" value="${p.phone||""}"></div>
           </div>
@@ -908,7 +915,7 @@ async function renderSettings(el) {
       <div class="space-y-6">
         <div class="card p-6">
           <h3 class="text-lg font-bold mb-4"><i class="fas fa-clock mr-2 text-green-500"></i>Jam Operasional</h3>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div><label class="block text-sm font-medium mb-1">Jam Buka</label><input id="sOpen" type="number" min="0" max="23" value="${p.open_hour}"></div>
             <div><label class="block text-sm font-medium mb-1">Jam Tutup</label><input id="sClose" type="number" min="0" max="24" value="${p.close_hour}"></div>
           </div>
@@ -1271,15 +1278,15 @@ function showAddVoucher() {
     <h3 class="text-lg font-bold mb-4"><i class="fas fa-tags mr-2 text-orange-500"></i>Buat Voucher</h3>
     <div class="space-y-3">
       <div><label class="block text-sm font-medium mb-1">Kode Voucher *</label><input id="vCode" placeholder="DISKON10" style="text-transform:uppercase"></div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Tipe Diskon</label><select id="vType"><option value="percentage">Persen (%)</option><option value="fixed">Nominal (Rp)</option></select></div>
         <div><label class="block text-sm font-medium mb-1">Nilai Diskon *</label><input id="vValue" type="number" placeholder="10"></div>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Min. Order</label><input id="vMinOrder" type="number" placeholder="0"></div>
         <div><label class="block text-sm font-medium mb-1">Maks Diskon</label><input id="vMaxDiscount" type="number" placeholder="0 = tanpa batas"></div>
       </div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Limit Pemakaian</label><input id="vLimit" type="number" placeholder="0 = tanpa batas"></div>
         <div><label class="block text-sm font-medium mb-1">Berlaku Sampai</label><input id="vUntil" type="date"></div>
       </div>
@@ -1344,7 +1351,7 @@ function showAddPaymentMethod() {
         <option value="cod">COD</option>
         <option value="other">Lainnya</option>
       </select></div>
-      <div class="grid grid-cols-2 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">No. Rekening/Akun</label><input id="pmNumber" placeholder="1234567890"></div>
         <div><label class="block text-sm font-medium mb-1">Atas Nama</label><input id="pmAccountName" placeholder="Nama pemilik akun"></div>
       </div>
