@@ -21,7 +21,7 @@ import "./database/Menu/LenwyMenu.js";
 // [ ===== Business Module ===== ]
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
 import { askBusinessAssistant, detectIntent } from "./case/business/ai-assistant.js";
-import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow } from "./case/business/order-flow.js";
+import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow, pauseOrderFlow, getOrderFlowState } from "./case/business/order-flow.js";
 import { hasActiveTicketFlow, startTicketFlow, continueTicketFlow } from "./case/business/ticket-flow.js";
 import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
 import {
@@ -383,46 +383,50 @@ export default async (lenwy, m, meta) => {
     if (!isGroup && !sentWelcome && !sentAway) {
       const profile = getProfile(ownerId);
       if (profile.ai_enabled) {
-        // 1. Active ticket flow continuation
-        if (hasActiveTicketFlow(normalizedSender)) {
-          const flowCtx = { senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer" };
-          const result = continueTicketFlow(body, flowCtx);
-          if (result) await lenwyreply(result);
-          return;
-        }
-        // 2. Active order flow continuation
-        if (hasActiveOrderFlow(normalizedSender)) {
-          const flowResult = continueOrderFlow(body, {
-            senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
-          });
-          if (flowResult) {
-            if (flowResult.imageUrl) {
-              try { await lenwy.sendMessage(replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }); } catch (_) { await lenwyreply(flowResult.text); }
-            } else {
-              await lenwyreply(flowResult.text);
-            }
-            if (flowResult.order) {
-              for (const ownerJid of isCreatorArray) {
-                await notifyNewOrder(lenwy, ownerJid, flowResult.order, flowResult.customerName);
-              }
-              await checkLowStock(lenwy, ownerId, isCreatorArray[0]);
-            }
-          }
-          return;
-        }
-        // 3. Intent detection
-        const intent = detectIntent(body);
-
-        // 4. Order flow
-        if (intent === "pesan") {
-          const flowResult = startOrderFlow(body, {
-            senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
-          });
+        // Helper: send order flow result
+        const sendOrderResult = async (flowResult) => {
+          if (!flowResult) return;
           if (flowResult.imageUrl) {
             try { await lenwy.sendMessage(replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }); } catch (_) { await lenwyreply(flowResult.text); }
           } else {
             await lenwyreply(flowResult.text);
           }
+          if (flowResult.order) {
+            for (const ownerJid of isCreatorArray) {
+              await notifyNewOrder(lenwy, ownerJid, flowResult.order, flowResult.customerName);
+            }
+            await checkLowStock(lenwy, ownerId, isCreatorArray[0]);
+          }
+        };
+
+        // 1. Active ticket flow continuation
+        if (hasActiveTicketFlow(normalizedSender)) {
+          const flowCtx = { senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer" };
+          const result = continueTicketFlow(body, flowCtx);
+          if (result) { await lenwyreply(result); return; }
+        }
+
+        // 2. Active order flow continuation
+        if (hasActiveOrderFlow(normalizedSender)) {
+          const flowCtx = { senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer" };
+          const flowResult = continueOrderFlow(body, flowCtx);
+
+          if (flowResult) {
+            await sendOrderResult(flowResult);
+            return;
+          }
+        }
+
+        // 3. Intent detection
+        const intent = detectIntent(body);
+        const hasOrder = hasActiveOrderFlow(normalizedSender);
+
+        // 4. Order flow — start new or handle "pesan" intent
+        if (intent === "pesan") {
+          const flowResult = startOrderFlow(body, {
+            senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
+          });
+          await sendOrderResult(flowResult);
           return;
         }
 
@@ -534,10 +538,17 @@ export default async (lenwy, m, meta) => {
           aiInFlight.add(normalizedSender);
           try {
             await lenwy.sendPresenceUpdate("composing", replyJid).catch(() => {});
-            const answer = await askBusinessAssistant(body, ownerId, normalizedSender);
+            let answer = await askBusinessAssistant(body, ownerId, normalizedSender);
             await lenwy.sendPresenceUpdate("paused", replyJid).catch(() => {});
+            if (hasOrder) {
+              const orderState = getOrderFlowState(normalizedSender);
+              if (orderState) {
+                pauseOrderFlow(normalizedSender);
+                answer = (answer || "Maaf, saya kurang paham pertanyaannya 🙏") + "\n\n_Btw, pesanan kamu masih ada lho. Mau lanjutin? Tinggal balas sesuai yang diminta sebelumnya ya_ 😊";
+              }
+            }
             await lenwyreply(
-              answer || `Maaf, asisten sedang tidak tersedia. 🙏\n\nKetik "menu" untuk lihat layanan yang tersedia.`,
+              answer || `Maaf, asisten sedang tidak tersedia 🙏\n\nKetik "menu" untuk lihat layanan yang tersedia`,
             );
           } finally {
             aiInFlight.delete(normalizedSender);

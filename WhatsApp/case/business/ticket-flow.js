@@ -1,5 +1,5 @@
 import { getOrCreateCustomer, createTicket } from "../../database/business/db.js";
-import { formatPriority, formatTicketStatus, formatDate } from "../../database/business/helpers.js";
+import { formatPriority } from "../../database/business/helpers.js";
 
 const ticketFlowState = new Map();
 const FLOW_TTL = 10 * 60 * 1000;
@@ -38,21 +38,43 @@ function isNo(text) {
   return /^(tidak|gak|nggak|enggak|no|nope|skip)\b/i.test(text.trim());
 }
 
+const TRIGGER_PHRASES = [
+  /\b(mau|ingin|pengen|tolong|bisa|saya|dong|nih|ya|yuk|kak|min|gan|bang|mas|mba|sis)\b/gi,
+  /\b(buat|bikin|ajukan|kirim|submit)\b\s*(tiket|keluhan|komplain|laporan|aduan|report)\b/gi,
+  /\b(tiket|keluhan|komplain|laporan|aduan|report)\b\s*(dong|ya|nih|kak|min)\b/gi,
+  /^(tiket|komplain|keluhan|lapor|report)\s*/i,
+];
+
 function extractSubjectFromText(text) {
-  const cleaned = text.replace(/\b(mau|ingin|pengen|tolong|bisa|saya|dong|nih|ya|buat|bikin|ajukan|kirim)\b\s*(tiket|keluhan|komplain|laporan|aduan|report)\b/gi, "").trim();
-  if (cleaned.length > 5) return cleaned.slice(0, 200);
+  let cleaned = text;
+  for (const pattern of TRIGGER_PHRASES) {
+    cleaned = cleaned.replace(pattern, " ");
+  }
+  cleaned = cleaned.replace(/[,.:;!]+\s*/g, " ").replace(/\s+/g, " ").trim();
+  cleaned = cleaned.replace(/^[,.:;!\s]+/, "").replace(/[,.:;!\s]+$/, "");
+  if (cleaned.length >= 5) return cleaned.slice(0, 200);
+  return null;
+}
+
+function guessPriority(text) {
+  const lower = text.toLowerCase();
+  if (/\b(darurat|urgent|segera|cepat|parah|gawat|bahaya|fatal)\b/.test(lower)) return "urgent";
+  if (/\b(penting|mendesak|butuh|harus|tolong segera)\b/.test(lower)) return "high";
   return null;
 }
 
 export function startTicketFlow(text, ctx) {
   const { senderId, ownerId, botId } = ctx;
   const subject = extractSubjectFromText(text);
+
   if (subject) {
-    setState(senderId, { step: "description", subject, ownerId, botId });
-    return `Oke, saya catat keluhannya tentang *"${subject}"*.\n\nBisa jelaskan lebih detail masalahnya? Atau ketik *tidak* kalau sudah cukup.`;
+    const autoPriority = guessPriority(text);
+    setState(senderId, { step: "description", subject, ownerId, botId, autoPriority });
+    return `Oke, saya bantu buatkan tiket untuk masalah *"${subject}"* ya\n\nAda detail tambahan yang mau ditambahkan? Atau langsung ketik *tidak* kalau info di atas sudah cukup`;
   }
+
   setState(senderId, { step: "subject", ownerId, botId });
-  return "Tentu, saya bantu buatkan tiket support ya. Ceritakan dulu masalahnya apa?";
+  return "Tentu, saya bantu buatkan tiket ya 😊\n\nCeritain dulu masalahnya apa?";
 }
 
 export function continueTicketFlow(text, ctx) {
@@ -62,33 +84,43 @@ export function continueTicketFlow(text, ctx) {
 
   if (isCancel(text)) {
     clearState(senderId);
-    return "Oke, pembuatan tiket dibatalkan. Kalau butuh bantuan lagi, bilang aja ya! 😊";
+    return "Oke, pembuatan tiket dibatalkan. Kalau butuh bantuan lagi, bilang aja ya 😊";
   }
 
   if (state.step === "subject") {
     const subject = text.trim().slice(0, 200);
     if (subject.length < 3) {
-      return "Coba jelaskan sedikit lebih detail ya, masalahnya tentang apa?";
+      return "Coba ceritain sedikit lebih detail ya, masalahnya tentang apa?";
     }
-    setState(senderId, { ...state, step: "description", subject });
-    return `Oke, saya catat *"${subject}"*.\n\nAda detail tambahan yang mau ditambahkan? Atau ketik *tidak* kalau sudah cukup.`;
+    const autoPriority = guessPriority(text);
+    setState(senderId, { ...state, step: "description", subject, autoPriority });
+    return `Oke dicatat, masalahnya tentang *"${subject}"*\n\nAda info tambahan lagi? Kalau sudah cukup, ketik *tidak*`;
   }
 
   if (state.step === "description") {
     const description = isNo(text) ? "" : text.trim().slice(0, 500);
+    const priority = state.autoPriority || "medium";
     setState(senderId, { ...state, step: "priority", description });
-    return "Seberapa mendesak masalahnya?\n\n1. Rendah — bisa ditangani nanti\n2. Sedang — perlu ditangani\n3. Tinggi — cukup mendesak\n4. Mendesak — butuh penanganan segera\n\nBalas angka atau nama prioritasnya.";
+    return `Seberapa mendesak masalahnya?\n\n1. Rendah — bisa ditangani nanti\n2. Sedang — perlu ditangani\n3. Tinggi — cukup mendesak\n4. Mendesak — butuh penanganan segera\n\nBalas angka atau katanya aja`;
   }
 
   if (state.step === "priority") {
-    const priorityMap = { "1": "low", "2": "medium", "3": "high", "4": "urgent", "rendah": "low", "sedang": "medium", "tinggi": "high", "mendesak": "urgent", "urgent": "urgent", "high": "high", "medium": "medium", "low": "low" };
-    const priority = priorityMap[text.trim().toLowerCase()] || "medium";
+    const priorityMap = { "1": "low", "2": "medium", "3": "high", "4": "urgent", "rendah": "low", "sedang": "medium", "tinggi": "high", "mendesak": "urgent", "urgent": "urgent", "high": "high", "medium": "medium", "low": "low", "biasa": "medium", "penting": "high" };
+    const lower = text.trim().toLowerCase();
+    let priority = priorityMap[lower];
+    if (!priority) {
+      for (const [key, val] of Object.entries(priorityMap)) {
+        if (lower.includes(key)) { priority = val; break; }
+      }
+    }
+    if (!priority) priority = "medium";
+
     setState(senderId, { ...state, step: "confirm", priority });
     let confirm = `Ringkasan tiket:\n\n`;
     confirm += `📌 *Masalah:* ${state.subject}\n`;
     if (state.description) confirm += `📝 *Detail:* ${state.description}\n`;
     confirm += `⚡ *Prioritas:* ${formatPriority(priority)}\n`;
-    confirm += `\nSudah benar? Balas *ya* untuk kirim, atau *batal* untuk membatalkan.`;
+    confirm += `\nSudah benar? Balas *ya* untuk kirim, atau *batal* untuk membatalkan`;
     return confirm;
   }
 
@@ -97,13 +129,13 @@ export function continueTicketFlow(text, ctx) {
       const customer = getOrCreateCustomer(senderId, pushName || "Customer", ownerId, botId);
       const ticket = createTicket(customer.id, state.subject, state.description || "", state.priority || "medium", ownerId, botId);
       clearState(senderId);
-      return `Tiket berhasil dibuat! ✅\n\nNo. Tiket: *${ticket.ticket_number}*\nMasalah: ${ticket.subject}\nPrioritas: ${formatPriority(ticket.priority)}\n\nTim kami akan segera menangani ya. Kalau mau cek statusnya, tinggal bilang aja "cek tiket saya". 😊`;
+      return `Tiket berhasil dibuat! ✅\n\nNo. Tiket: *${ticket.ticket_number}*\nMasalah: ${ticket.subject}\nPrioritas: ${formatPriority(ticket.priority)}\n\nTim kami akan segera menangani ya 😊`;
     }
     if (isNo(text)) {
       clearState(senderId);
-      return "Oke, pembuatan tiket dibatalkan. Kalau butuh bantuan lagi, bilang aja ya! 😊";
+      return "Oke, pembuatan tiket dibatalkan. Kalau butuh bantuan lagi, bilang aja ya 😊";
     }
-    return "Balas *ya* untuk kirim tiket, atau *batal* untuk membatalkan.";
+    return "Balas *ya* untuk kirim tiket, atau *batal* untuk membatalkan";
   }
 
   clearState(senderId);
