@@ -130,6 +130,39 @@ const INTENT_PATTERNS = [
     /\b(rekening|norek|no\s*rek|transfer\s*kemana)\b/i,
     /\b(bayar|pembayaran)\b.*\b(gimana|kemana|ke\s*mana)\b/i,
   ] },
+  { intent: "loyalty", patterns: [
+    /\b(cek|lihat|berapa|saldo)\b.*\b(poin|point|loyalty|member)\b/i,
+    /\b(poin|point|loyalty)\b.*\b(saya|ku|gw|gua|gue|aku)\b/i,
+    /^(cek poin|poin saya|loyalty)$/i,
+    /\bpoin\b/i,
+  ] },
+  { intent: "redeem", patterns: [
+    /\b(tukar|redeem|tukerin|pakai|pake|gunakan)\b.*\b(poin|point|loyalty)\b/i,
+    /\b(poin|point)\b.*\b(tukar|redeem)\b/i,
+    /^tukar\s*poin$/i,
+  ] },
+  { intent: "apply_referral", patterns: [
+    /\b(pakai|pake|gunakan|use|apply|masukkan)\b.*\b(referral|kode|code)\b\s+[A-Za-z0-9]+/i,
+    /\b(pakai|pake)\b.*\breferral\b/i,
+  ] },
+  { intent: "referral", patterns: [
+    /\b(kode|code)\b.*\b(referral|referal|refferal|ref)\b/i,
+    /\b(referral|referal|refferal)\b.*\b(saya|ku|gw|gua|gue|aku|code|kode)\b/i,
+    /^(referral|kode referral|ref)$/i,
+    /\breferral\b/i,
+  ] },
+  { intent: "rating", patterns: [
+    /\b(beri|kasih|mau|ingin)\b.*\b(rating|review|bintang|rate|ulasan)\b/i,
+    /\b(rating|review|rate)\b.*\b(pesanan|order)\b/i,
+    /^(rating|review|rate)$/i,
+    /\b(rating|review)\b/i,
+  ] },
+  { intent: "bundle", patterns: [
+    /\b(lihat|tampil|ada|cek)\b.*\b(bundle|bundling|paket|combo)\b/i,
+    /\b(bundle|bundling|paket|combo)\b.*\b(apa|aja|saja|nya)\b/i,
+    /^(bundle|bundling|paket|combo)$/i,
+    /\b(paket|bundle)\b.*\b(produk|barang|hemat)\b/i,
+  ] },
 ];
 
 export function detectIntent(text) {

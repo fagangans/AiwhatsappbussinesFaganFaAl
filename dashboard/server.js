@@ -30,6 +30,12 @@ import db, {
   createVoucher, getAllVouchers, deleteVoucher, validateVoucher,
   getLowStockProducts,
   addPaymentMethod, getAllPaymentMethods, updatePaymentMethod, deletePaymentMethod,
+  addLoyaltyPoints, redeemLoyaltyPoints, getLoyaltyHistory, getLoyaltySettings, updateLoyaltySettings,
+  generateReferralCode, applyReferral, getReferralStats, getAllReferrals, markReferralRewarded,
+  addCustomerAddress, getCustomerAddresses, deleteCustomerAddress, setDefaultAddress,
+  createBundle, addBundleItem, getBundleWithItems, getAllBundles, deleteBundle, deleteBundleItem,
+  updateLeadScore, getCustomersByLeadTier,
+  getCustomerTimeline, getCustomersBySegment,
 } from "../WhatsApp/database/business/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -848,6 +854,168 @@ export default function startDashboard() {
       }, delay);
     }
     res.json({ success: true, broadcast: bc, scheduled_at: scheduledAt });
+  });
+
+  // ===== LOYALTY =====
+  app.get("/api/loyalty/settings", auth, (req, res) => {
+    const ownerId = getOwnerId(req) || req.user.id;
+    res.json(getLoyaltySettings(ownerId));
+  });
+
+  app.put("/api/loyalty/settings", auth, (req, res) => {
+    const ownerId = getWriteOwnerId(req);
+    updateLoyaltySettings(req.body, ownerId);
+    res.json({ success: true });
+  });
+
+  app.get("/api/loyalty/:customerId", auth, (req, res) => {
+    const history = getLoyaltyHistory(parseInt(req.params.customerId));
+    res.json(history);
+  });
+
+  app.post("/api/loyalty/add", auth, (req, res) => {
+    const { customerId, points, reason } = req.body;
+    const ownerId = getWriteOwnerId(req);
+    const result = addLoyaltyPoints(customerId, points, reason || "Manual", null, ownerId);
+    res.json(result);
+  });
+
+  app.post("/api/loyalty/redeem", auth, (req, res) => {
+    const { customerId, points } = req.body;
+    const result = redeemLoyaltyPoints(customerId, points);
+    res.json(result);
+  });
+
+  // ===== REFERRALS =====
+  app.get("/api/referrals", auth, (req, res) => {
+    const { ownerId } = getViewContext(req);
+    res.json(getAllReferrals(ownerId));
+  });
+
+  app.post("/api/referrals/generate", auth, (req, res) => {
+    const code = generateReferralCode(req.body.customerId);
+    res.json({ code });
+  });
+
+  app.get("/api/referrals/:customerId/stats", auth, (req, res) => {
+    res.json(getReferralStats(parseInt(req.params.customerId)));
+  });
+
+  // ===== CUSTOMER ADDRESSES =====
+  app.get("/api/customers/:id/addresses", auth, (req, res) => {
+    res.json(getCustomerAddresses(parseInt(req.params.id)));
+  });
+
+  app.post("/api/customers/:id/addresses", auth, (req, res) => {
+    const addr = addCustomerAddress(parseInt(req.params.id), req.body.label || "Rumah", req.body.address, req.body.is_default ? 1 : 0);
+    res.json(addr);
+  });
+
+  app.delete("/api/addresses/:id", auth, (req, res) => {
+    deleteCustomerAddress(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.put("/api/addresses/:id/default", auth, (req, res) => {
+    setDefaultAddress(parseInt(req.params.id), req.body.customerId);
+    res.json({ success: true });
+  });
+
+  // ===== BUNDLES =====
+  app.get("/api/bundles", auth, (req, res) => {
+    const { ownerId } = getViewContext(req);
+    res.json(getAllBundles(ownerId));
+  });
+
+  app.get("/api/bundles/:id", auth, (req, res) => {
+    const bundle = getBundleWithItems(parseInt(req.params.id));
+    if (!bundle) return res.status(404).json({ error: "Bundle tidak ditemukan" });
+    res.json(bundle);
+  });
+
+  app.post("/api/bundles", auth, (req, res) => {
+    const ownerId = getWriteOwnerId(req);
+    const bundle = createBundle(req.body.name, req.body.description, req.body.bundle_price, ownerId);
+    if (req.body.items) {
+      for (const item of req.body.items) {
+        addBundleItem(bundle.id, item.product_id, item.qty || 1);
+      }
+    }
+    res.json(getBundleWithItems(bundle.id));
+  });
+
+  app.delete("/api/bundles/:id", auth, (req, res) => {
+    deleteBundle(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  // ===== CUSTOMER TIMELINE =====
+  app.get("/api/customers/:id/timeline", auth, (req, res) => {
+    res.json(getCustomerTimeline(parseInt(req.params.id)));
+  });
+
+  // ===== LEAD SCORING =====
+  app.post("/api/customers/:id/update-lead", auth, (req, res) => {
+    const result = updateLeadScore(parseInt(req.params.id));
+    res.json(result || { score: 0, tier: "cold" });
+  });
+
+  app.get("/api/customers/leads/:tier", auth, (req, res) => {
+    const { ownerId } = getViewContext(req);
+    res.json(getCustomersByLeadTier(req.params.tier, ownerId));
+  });
+
+  // ===== BROADCAST SEGMENTS =====
+  app.get("/api/segments/:segment/count", auth, (req, res) => {
+    const { ownerId } = getViewContext(req);
+    const customers = getCustomersBySegment(req.params.segment, ownerId);
+    res.json({ segment: req.params.segment, count: customers.length });
+  });
+
+  app.post("/api/broadcasts/segment", auth, (req, res) => {
+    const ownerId = getWriteOwnerId(req);
+    const { title, message, segment, botId } = req.body;
+    const customers = getCustomersBySegment(segment, ownerId);
+    if (customers.length === 0) return res.status(400).json({ error: "Tidak ada customer di segmen ini" });
+    const bc = createBroadcast(title, message, [segment], ownerId);
+    const waSocket = getSocket(botId);
+    if (waSocket) {
+      (async () => {
+        let sent = 0;
+        for (const customer of customers) {
+          try {
+            await waSocket.sendMessage(customer.jid, { text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` });
+            sent++;
+            await new Promise(r => setTimeout(r, 1000));
+          } catch { /* skip */ }
+        }
+        updateBroadcastStatus(bc.id, "sent", sent);
+      })();
+    }
+    res.json({ success: true, broadcast: bc, recipients: customers.length });
+  });
+
+  // ===== EXPORT ENHANCED =====
+  app.get("/api/export/analytics", auth, (req, res) => {
+    const { ownerId } = getViewContext(req);
+    const data = getAnalytics(req.query.days ? parseInt(req.query.days) : 30, ownerId);
+    const bom = "﻿";
+    let csv = bom + "Tanggal,Pesan Masuk,Pesan Keluar,Customer Baru,Order,Revenue,Tiket Dibuka,Tiket Selesai\n";
+    data.forEach(r => { csv += `${r.date},${r.messages_in},${r.messages_out},${r.new_customers},${r.orders_count},${r.revenue},${r.tickets_opened},${r.tickets_resolved}\n`; });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment; filename=analytics.csv");
+    res.send(csv);
+  });
+
+  app.get("/api/export/tickets", auth, (req, res) => {
+    const { ownerId, botId } = getViewContext(req);
+    const data = getAllTickets(null, 1000, ownerId, botId);
+    const bom = "﻿";
+    let csv = bom + "No Tiket,Customer,Subject,Prioritas,Status,Dibuat,Updated\n";
+    data.forEach(r => { csv += `${r.ticket_number},"${(r.customer_name||'').replace(/"/g,'""')}","${(r.subject||'').replace(/"/g,'""')}",${r.priority},${r.status},${r.created_at},${r.updated_at}\n`; });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", "attachment; filename=tickets.csv");
+    res.send(csv);
   });
 
   // ===== SPA FALLBACK =====

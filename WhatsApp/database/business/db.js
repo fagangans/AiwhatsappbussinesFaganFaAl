@@ -467,6 +467,79 @@ function repairDanglingForeignKeys() {
 
 repairDanglingForeignKeys();
 
+// === NEW TABLES: Loyalty, Referral, Addresses, Bundles ===
+db.exec(`
+  CREATE TABLE IF NOT EXISTS loyalty_points (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    points INTEGER NOT NULL,
+    reason TEXT DEFAULT '',
+    order_id INTEGER,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS loyalty_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    points_per_rupiah REAL DEFAULT 0.01,
+    min_redeem INTEGER DEFAULT 100,
+    redeem_value REAL DEFAULT 1000,
+    is_active INTEGER DEFAULT 1,
+    UNIQUE(owner_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS referrals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    referrer_id INTEGER NOT NULL,
+    referred_id INTEGER NOT NULL,
+    referral_code TEXT NOT NULL,
+    reward_given INTEGER DEFAULT 0,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (referrer_id) REFERENCES customers(id),
+    FOREIGN KEY (referred_id) REFERENCES customers(id),
+    UNIQUE(referred_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS customer_addresses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    label TEXT DEFAULT 'Rumah',
+    address TEXT NOT NULL,
+    is_default INTEGER DEFAULT 0,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS product_bundles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    bundle_price REAL NOT NULL DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS bundle_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bundle_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    qty INTEGER DEFAULT 1,
+    FOREIGN KEY (bundle_id) REFERENCES product_bundles(id),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+  );
+`);
+
+addColSafe("customers", "loyalty_points", "INTEGER DEFAULT 0");
+addColSafe("customers", "referral_code", "TEXT DEFAULT ''");
+addColSafe("customers", "birthday", "TEXT DEFAULT ''");
+addColSafe("customers", "lead_score", "INTEGER DEFAULT 0");
+addColSafe("customers", "lead_tier", "TEXT DEFAULT 'cold'");
+addColSafe("messages_log", "sentiment", "TEXT DEFAULT ''");
+addColSafe("messages_log", "sentiment_score", "REAL DEFAULT NULL");
+
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_customers_jid_owner ON customers(jid, owner_id);
   CREATE INDEX IF NOT EXISTS idx_customers_owner ON customers(owner_id);
@@ -501,6 +574,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_vouchers_owner ON vouchers(owner_id);
   CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
   CREATE INDEX IF NOT EXISTS idx_payment_methods_owner ON payment_methods(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_loyalty_customer ON loyalty_points(customer_id);
+  CREATE INDEX IF NOT EXISTS idx_loyalty_owner ON loyalty_points(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id);
+  CREATE INDEX IF NOT EXISTS idx_referrals_referred ON referrals(referred_id);
+  CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals(referral_code);
+  CREATE INDEX IF NOT EXISTS idx_customer_addresses ON customer_addresses(customer_id);
+  CREATE INDEX IF NOT EXISTS idx_bundles_owner ON product_bundles(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_bundle_items_bundle ON bundle_items(bundle_id);
+  CREATE INDEX IF NOT EXISTS idx_customers_lead ON customers(lead_tier);
+  CREATE INDEX IF NOT EXISTS idx_messages_sentiment ON messages_log(sentiment);
 `);
 
 const adminProfile = db.prepare("SELECT COUNT(*) as c FROM business_profile WHERE owner_id = 1").get();
@@ -1193,6 +1276,195 @@ export function getDeliveredOrdersForFollowup(ownerId = null) {
 
 export function markFollowupSent(orderNumber) {
   db.prepare("UPDATE orders SET notes = notes || ' [followup_sent]' WHERE order_number = ?").run(orderNumber);
+}
+
+// === LOYALTY POINTS ===
+export function addLoyaltyPoints(customerId, points, reason = "", orderId = null, ownerId = 1) {
+  db.prepare("INSERT INTO loyalty_points (customer_id, points, reason, order_id, owner_id) VALUES (?, ?, ?, ?, ?)").run(customerId, points, reason, orderId, ownerId);
+  db.prepare("UPDATE customers SET loyalty_points = loyalty_points + ? WHERE id = ?").run(points, customerId);
+  return db.prepare("SELECT loyalty_points FROM customers WHERE id = ?").get(customerId);
+}
+
+export function redeemLoyaltyPoints(customerId, points) {
+  const c = db.prepare("SELECT loyalty_points FROM customers WHERE id = ?").get(customerId);
+  if (!c || c.loyalty_points < points) return { success: false, reason: "Poin tidak cukup." };
+  db.prepare("INSERT INTO loyalty_points (customer_id, points, reason) VALUES (?, ?, 'Penukaran poin')").run(customerId, -points);
+  db.prepare("UPDATE customers SET loyalty_points = loyalty_points - ? WHERE id = ?").run(points, customerId);
+  return { success: true, remaining: c.loyalty_points - points };
+}
+
+export function getLoyaltyHistory(customerId, limit = 20) {
+  return db.prepare("SELECT * FROM loyalty_points WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?").all(customerId, limit);
+}
+
+export function getLoyaltySettings(ownerId = 1) {
+  let s = db.prepare("SELECT * FROM loyalty_settings WHERE owner_id = ?").get(ownerId);
+  if (!s) {
+    db.prepare("INSERT INTO loyalty_settings (owner_id) VALUES (?)").run(ownerId);
+    s = db.prepare("SELECT * FROM loyalty_settings WHERE owner_id = ?").get(ownerId);
+  }
+  return s;
+}
+
+export function updateLoyaltySettings(data, ownerId = 1) {
+  const fields = Object.keys(data).filter(k => k !== "id" && k !== "owner_id");
+  const sets = fields.map(f => `${f} = @${f}`).join(", ");
+  data.oid = ownerId;
+  return db.prepare(`UPDATE loyalty_settings SET ${sets} WHERE owner_id = @oid`).run(data);
+}
+
+// === REFERRALS ===
+export function generateReferralCode(customerId) {
+  const existing = db.prepare("SELECT referral_code FROM customers WHERE id = ? AND referral_code != ''").get(customerId);
+  if (existing?.referral_code) return existing.referral_code;
+  const code = "REF" + Math.random().toString(36).substring(2, 8).toUpperCase();
+  db.prepare("UPDATE customers SET referral_code = ? WHERE id = ?").run(code, customerId);
+  return code;
+}
+
+export function applyReferral(referrerCode, newCustomerId, ownerId = 1) {
+  const referrer = db.prepare("SELECT id FROM customers WHERE referral_code = ? AND owner_id = ?").get(referrerCode, ownerId);
+  if (!referrer) return { success: false, reason: "Kode referral tidak ditemukan." };
+  if (referrer.id === newCustomerId) return { success: false, reason: "Tidak bisa referral diri sendiri." };
+  const exists = db.prepare("SELECT id FROM referrals WHERE referred_id = ?").get(newCustomerId);
+  if (exists) return { success: false, reason: "Customer sudah pernah menggunakan referral." };
+  db.prepare("INSERT INTO referrals (referrer_id, referred_id, referral_code, owner_id) VALUES (?, ?, ?, ?)").run(referrer.id, newCustomerId, referrerCode, ownerId);
+  return { success: true, referrerId: referrer.id };
+}
+
+export function getReferralStats(customerId) {
+  const count = db.prepare("SELECT COUNT(*) as c FROM referrals WHERE referrer_id = ?").get(customerId);
+  const rewarded = db.prepare("SELECT COUNT(*) as c FROM referrals WHERE referrer_id = ? AND reward_given = 1").get(customerId);
+  return { total: count.c, rewarded: rewarded.c };
+}
+
+export function markReferralRewarded(referredId) {
+  db.prepare("UPDATE referrals SET reward_given = 1 WHERE referred_id = ?").run(referredId);
+}
+
+export function getAllReferrals(ownerId = null, limit = 50) {
+  let sql = `SELECT r.*, c1.name as referrer_name, c1.jid as referrer_jid, c2.name as referred_name, c2.jid as referred_jid
+    FROM referrals r JOIN customers c1 ON r.referrer_id = c1.id JOIN customers c2 ON r.referred_id = c2.id WHERE 1=1`;
+  const p = [];
+  if (ownerId) { sql += " AND r.owner_id = ?"; p.push(ownerId); }
+  sql += " ORDER BY r.created_at DESC LIMIT ?";
+  p.push(limit);
+  return db.prepare(sql).all(...p);
+}
+
+// === CUSTOMER ADDRESSES ===
+export function addCustomerAddress(customerId, label, address, isDefault = 0) {
+  if (isDefault) db.prepare("UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?").run(customerId);
+  db.prepare("INSERT INTO customer_addresses (customer_id, label, address, is_default) VALUES (?, ?, ?, ?)").run(customerId, label, address, isDefault ? 1 : 0);
+  return db.prepare("SELECT * FROM customer_addresses WHERE customer_id = ? ORDER BY id DESC LIMIT 1").get(customerId);
+}
+
+export function getCustomerAddresses(customerId) {
+  return db.prepare("SELECT * FROM customer_addresses WHERE customer_id = ? ORDER BY is_default DESC, id DESC").all(customerId);
+}
+
+export function deleteCustomerAddress(id) {
+  db.prepare("DELETE FROM customer_addresses WHERE id = ?").run(id);
+}
+
+export function setDefaultAddress(id, customerId) {
+  db.prepare("UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?").run(customerId);
+  db.prepare("UPDATE customer_addresses SET is_default = 1 WHERE id = ?").run(id);
+}
+
+// === PRODUCT BUNDLES ===
+export function createBundle(name, description, bundlePrice, ownerId = 1) {
+  db.prepare("INSERT INTO product_bundles (name, description, bundle_price, owner_id) VALUES (?, ?, ?, ?)").run(name, description || "", bundlePrice, ownerId);
+  return db.prepare("SELECT * FROM product_bundles WHERE owner_id = ? ORDER BY id DESC LIMIT 1").get(ownerId);
+}
+
+export function addBundleItem(bundleId, productId, qty = 1) {
+  db.prepare("INSERT INTO bundle_items (bundle_id, product_id, qty) VALUES (?, ?, ?)").run(bundleId, productId, qty);
+}
+
+export function getBundleWithItems(bundleId) {
+  const bundle = db.prepare("SELECT * FROM product_bundles WHERE id = ? AND is_active = 1").get(bundleId);
+  if (!bundle) return null;
+  bundle.items = db.prepare("SELECT bi.*, p.name as product_name, p.price as product_price FROM bundle_items bi JOIN products p ON bi.product_id = p.id WHERE bi.bundle_id = ?").all(bundleId);
+  return bundle;
+}
+
+export function getAllBundles(ownerId = null) {
+  let sql = "SELECT pb.*, (SELECT SUM(p.price * bi.qty) FROM bundle_items bi JOIN products p ON bi.product_id = p.id WHERE bi.bundle_id = pb.id) as original_price FROM product_bundles pb WHERE pb.is_active = 1";
+  const p = [];
+  if (ownerId) { sql += " AND pb.owner_id = ?"; p.push(ownerId); }
+  sql += " ORDER BY pb.name";
+  return db.prepare(sql).all(...p);
+}
+
+export function deleteBundle(id) {
+  db.prepare("UPDATE product_bundles SET is_active = 0 WHERE id = ?").run(id);
+}
+
+export function deleteBundleItem(id) {
+  db.prepare("DELETE FROM bundle_items WHERE id = ?").run(id);
+}
+
+// === LEAD SCORING ===
+export function updateLeadScore(customerId) {
+  const c = db.prepare("SELECT total_orders, total_spent, satisfaction_avg FROM customers WHERE id = ?").get(customerId);
+  if (!c) return;
+  let score = 0;
+  score += Math.min(c.total_orders * 10, 40);
+  score += Math.min(Math.floor(c.total_spent / 100000) * 5, 30);
+  if (c.satisfaction_avg >= 4) score += 20;
+  else if (c.satisfaction_avg >= 3) score += 10;
+  const recentOrder = db.prepare("SELECT COUNT(*) as c FROM orders WHERE customer_id = ? AND created_at >= datetime('now', '-30 days')").get(customerId);
+  if (recentOrder.c > 0) score += 10;
+  let tier = "cold";
+  if (score >= 70) tier = "hot";
+  else if (score >= 40) tier = "warm";
+  db.prepare("UPDATE customers SET lead_score = ?, lead_tier = ? WHERE id = ?").run(score, tier, customerId);
+  return { score, tier };
+}
+
+export function getCustomersByLeadTier(tier, ownerId = null) {
+  let sql = "SELECT * FROM customers WHERE lead_tier = ?";
+  const p = [tier];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  sql += " ORDER BY lead_score DESC";
+  return db.prepare(sql).all(...p);
+}
+
+// === SENTIMENT ===
+export function logSentiment(messageLogId, sentiment, score) {
+  db.prepare("UPDATE messages_log SET sentiment = ?, sentiment_score = ? WHERE id = ?").run(sentiment, score, messageLogId);
+}
+
+export function getCustomerSentimentAvg(customerId) {
+  const r = db.prepare("SELECT AVG(sentiment_score) as avg FROM messages_log WHERE customer_id = ? AND sentiment_score IS NOT NULL").get(customerId);
+  return r?.avg || 0;
+}
+
+// === CUSTOMER TIMELINE ===
+export function getCustomerTimeline(customerId, limit = 30) {
+  const msgs = db.prepare("SELECT 'message' as type, content as detail, direction, timestamp as ts FROM messages_log WHERE customer_id = ? ORDER BY timestamp DESC LIMIT ?").all(customerId, limit);
+  const orders = db.prepare("SELECT 'order' as type, order_number || ' - ' || status as detail, 'system' as direction, created_at as ts FROM orders WHERE customer_id = ? ORDER BY created_at DESC LIMIT 10").all(customerId);
+  const tickets = db.prepare("SELECT 'ticket' as type, ticket_number || ' - ' || subject as detail, 'system' as direction, created_at as ts FROM tickets WHERE customer_id = ? ORDER BY created_at DESC LIMIT 10").all(customerId);
+  const ratings = db.prepare("SELECT 'rating' as type, rating || '/5 - ' || COALESCE(feedback,'') as detail, 'system' as direction, created_at as ts FROM satisfaction_ratings WHERE customer_id = ? ORDER BY created_at DESC LIMIT 10").all(customerId);
+  const all = [...msgs, ...orders, ...tickets, ...ratings].sort((a, b) => b.ts.localeCompare(a.ts));
+  return all.slice(0, limit);
+}
+
+// === BROADCAST SEGMENTS ===
+export function getCustomersBySegment(segment, ownerId = null) {
+  let base = "SELECT * FROM customers WHERE is_blocked = 0";
+  const p = [];
+  if (ownerId) { base += " AND owner_id = ?"; p.push(ownerId); }
+  if (segment === "new_30d") base += " AND first_contact >= datetime('now', '-30 days')";
+  else if (segment === "inactive_30d") base += " AND last_contact < datetime('now', '-30 days')";
+  else if (segment === "repeat_buyers") base += " AND total_orders >= 2";
+  else if (segment === "high_spenders") base += " AND total_spent >= 500000";
+  else if (segment === "hot_leads") base += " AND lead_tier = 'hot'";
+  else if (segment === "warm_leads") base += " AND lead_tier = 'warm'";
+  else if (segment === "cold_leads") base += " AND lead_tier = 'cold'";
+  else if (segment === "low_satisfaction") base += " AND satisfaction_avg > 0 AND satisfaction_avg < 3";
+  return db.prepare(base).all(...p);
 }
 
 // === PAYMENT METHODS ===

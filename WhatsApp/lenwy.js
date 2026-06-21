@@ -27,6 +27,11 @@ import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./cas
 import {
   getProfile, getLowStockProducts, searchFaq, getAllFaq,
   getOrCreateCustomer, getCustomerOrders, getAllProducts, getAllPaymentMethods,
+  addLoyaltyPoints, getLoyaltySettings,
+  generateReferralCode, applyReferral, markReferralRewarded, getReferralStats,
+  addSatisfactionRating, updateLeadScore, logSentiment, logMessage,
+  getTicket, getOrder, getAllBundles, getBundleWithItems, getCustomerAddresses,
+  addImportantMessage,
 } from "./database/business/db.js";
 import { formatCurrency, formatOrderStatus } from "./database/business/helpers.js";
 
@@ -49,6 +54,47 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Sentiment Detection
+const NEGATIVE_KEYWORDS = [
+  /\b(kecewa|marah|kesal|benci|parah|buruk|jelek|nyesel|nyesal|rugi|zonk|bohong|nipu|tipu|penipu|penipuan|sampah|busuk|bangsat|anjing|goblok|tolol|bego|bodoh)\b/i,
+  /\b(gak (puas|bagus|bener|beres))\b/i,
+  /\b(tidak (puas|memuaskan|bagus|sesuai))\b/i,
+  /\b(lama (banget|sekali|bgt))\b/i,
+  /\b(kapan (dikirim|diproses|sampai|nyampe))\b/i
+];
+const POSITIVE_KEYWORDS = [
+  /\b(bagus|mantap|mantul|keren|puas|senang|suka|sip|oke|recommended|recommend|rekomen|top|terbaik|the best|luar biasa|makasih|terima kasih|trimakasih|terimakasih|thx|thanks|thank you)\b/i,
+  /\b(fast (respon|response))\b/i,
+  /\b(cepat (banget|sekali|bgt))\b/i
+];
+
+function detectSentiment(text) {
+  const lower = text.toLowerCase();
+  let neg = 0, pos = 0;
+  for (const p of NEGATIVE_KEYWORDS) if (p.test(lower)) neg++;
+  for (const p of POSITIVE_KEYWORDS) if (p.test(lower)) pos++;
+  if (neg > pos) return { sentiment: "negative", score: -1 * Math.min(neg, 3) / 3 };
+  if (pos > neg) return { sentiment: "positive", score: Math.min(pos, 3) / 3 };
+  return { sentiment: "neutral", score: 0 };
+}
+
+// Rating Flow State Manager
+const ratingFlows = new Map();
+
+function startRatingFlow(senderId, orderNumber) {
+  ratingFlows.set(senderId, { orderNumber, step: "waiting_rating", startedAt: Date.now() });
+}
+
+function hasActiveRatingFlow(senderId) {
+  const f = ratingFlows.get(senderId);
+  if (!f) return false;
+  if (Date.now() - f.startedAt > 10 * 60 * 1000) { ratingFlows.delete(senderId); return false; }
+  return true;
+}
+
+function getRatingFlow(senderId) { return ratingFlows.get(senderId); }
+function clearRatingFlow(senderId) { ratingFlows.delete(senderId); }
 
 // Read Json File
 function readJSONSync(pathFile) {
@@ -396,6 +442,18 @@ export default async (lenwy, m, meta) => {
               await notifyNewOrder(lenwy, ownerJid, flowResult.order, flowResult.customerName);
             }
             await checkLowStock(lenwy, ownerId, isCreatorArray[0]);
+            // Auto loyalty points on order
+            try {
+              const settings = getLoyaltySettings(ownerId);
+              if (settings.is_active && settings.points_per_rupiah > 0) {
+                const cust = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+                const earnedPts = Math.floor(flowResult.order.total * settings.points_per_rupiah);
+                if (earnedPts > 0) {
+                  addLoyaltyPoints(cust.id, earnedPts, `Order ${flowResult.order.order_number}`, flowResult.order.id, ownerId);
+                  updateLeadScore(cust.id);
+                }
+              }
+            } catch (_) {}
           }
         };
 
@@ -444,6 +502,45 @@ export default async (lenwy, m, meta) => {
           }
         }
 
+        // 2.5. Active rating flow
+        if (hasActiveRatingFlow(normalizedSender)) {
+          const flow = getRatingFlow(normalizedSender);
+          if (flow.step === "waiting_rating") {
+            const num = parseInt(body.trim());
+            if (num >= 1 && num <= 5) {
+              flow.rating = num;
+              flow.step = "waiting_feedback";
+              await lenwyreply(`Rating ${num}/5 diterima! ⭐\n\nMau kasih komentar tambahan? Tulis aja, atau ketik *skip* untuk lewati.`);
+              return;
+            } else {
+              await lenwyreply("Kasih rating 1-5 ya (1 = buruk, 5 = sangat baik)");
+              return;
+            }
+          }
+          if (flow.step === "waiting_feedback") {
+            const feedback = body.toLowerCase() === "skip" ? "" : body;
+            const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+            const order = getOrder(flow.orderNumber, ownerId);
+            addSatisfactionRating(customer.id, flow.rating, feedback, null, order?.id || null);
+            updateLeadScore(customer.id);
+            clearRatingFlow(normalizedSender);
+            const stars = "⭐".repeat(flow.rating);
+            await lenwyreply(`Terima kasih atas review-nya! ${stars}\n\nFeedback kamu sangat berarti buat kami 🙏`);
+            return;
+          }
+        }
+
+        // 2.6. Sentiment detection on every message
+        {
+          const { sentiment, score } = detectSentiment(body);
+          if (sentiment === "negative" && score <= -0.66) {
+            try {
+              const cust = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+              addImportantMessage(botId || "", cust.id, cust.name || pushname, normalizedSender, body, "negative_sentiment", "high", ownerId);
+            } catch (_) {}
+          }
+        }
+
         // 3. Intent detection
         const intent = detectIntent(body);
         const hasOrder = hasActiveOrderFlow(normalizedSender);
@@ -463,6 +560,116 @@ export default async (lenwy, m, meta) => {
             senderId: normalizedSender, ownerId, botId, pushName: msg.pushName || "Customer",
           });
           await lenwyreply(result);
+          return;
+        }
+
+        // 5a. Loyalty - cek poin
+        if (intent === "loyalty") {
+          const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+          const settings = getLoyaltySettings(ownerId);
+          if (!settings.is_active) {
+            await lenwyreply("Program loyalty belum aktif saat ini 🙏");
+          } else {
+            let text = `💎 *Poin Loyalty Kamu*\n\nSaldo: *${customer.loyalty_points || 0} poin*\n`;
+            if (settings.min_redeem) text += `Min. tukar: ${settings.min_redeem} poin\n`;
+            if (settings.redeem_value) text += `Nilai tukar: ${settings.redeem_value}% dari poin\n`;
+            text += `\nKetik *tukar poin* untuk menukarkan poin kamu`;
+            await lenwyreply(text);
+          }
+          return;
+        }
+
+        // 5b. Loyalty - redeem
+        if (intent === "redeem") {
+          const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+          const settings = getLoyaltySettings(ownerId);
+          if (!settings.is_active) {
+            await lenwyreply("Program loyalty belum aktif saat ini 🙏");
+            return;
+          }
+          const pts = customer.loyalty_points || 0;
+          if (pts < (settings.min_redeem || 100)) {
+            await lenwyreply(`Poin kamu (${pts}) belum cukup untuk ditukar. Minimal ${settings.min_redeem || 100} poin.`);
+            return;
+          }
+          await lenwyreply(`Kamu punya *${pts} poin*. Untuk menukarkan poin, hubungi admin ya! Admin akan proses penukaran poin kamu 😊`);
+          return;
+        }
+
+        // 5c. Referral
+        if (intent === "referral") {
+          const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+          const code = generateReferralCode(customer.id);
+          const stats = getReferralStats(customer.id);
+          let text = `🎁 *Program Referral*\n\nKode referral kamu: *${code}*\n`;
+          text += `Referral berhasil: ${stats.total} orang\n`;
+          text += `\nBagikan kode ini ke teman kamu! Mereka cukup kirim pesan:\n*pakai referral ${code}*`;
+          await lenwyreply(text);
+          return;
+        }
+
+        // 5d. Apply referral code
+        if (intent === "apply_referral") {
+          const match = body.match(/(?:pakai|pake|gunakan|use|apply)\s+(?:referral|kode|code)\s+([A-Za-z0-9]+)/i);
+          if (match) {
+            const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+            const result = applyReferral(match[1].toUpperCase(), customer.id, ownerId);
+            if (result.success) {
+              addLoyaltyPoints(customer.id, 50, "Bonus referral (baru)", null, ownerId);
+              addLoyaltyPoints(result.referrerId, 100, "Bonus referral (pengajak)", null, ownerId);
+              markReferralRewarded(customer.id);
+              await lenwyreply("Kode referral berhasil digunakan! 🎉\n\nKamu dapat *50 poin bonus*. Selamat berbelanja! 😊");
+            } else {
+              await lenwyreply(result.reason);
+            }
+          } else {
+            await lenwyreply("Format: *pakai referral [KODE]*\n\nContoh: pakai referral REF123ABC");
+          }
+          return;
+        }
+
+        // 5e. Rating
+        if (intent === "rating") {
+          const match = body.match(/(?:rating|rate|review|beri\s*rating|kasih\s*rating)\s*(ORD-[A-Z0-9]+)?/i);
+          if (match && match[1]) {
+            startRatingFlow(normalizedSender, match[1].toUpperCase());
+            await lenwyreply(`Kasih rating untuk pesanan *${match[1].toUpperCase()}* yuk!\n\nBerapa bintang (1-5)? ⭐\n1 = Buruk\n3 = Cukup\n5 = Sangat Baik`);
+          } else {
+            const customer = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+            const orders = getCustomerOrders(customer.id) || [];
+            const delivered = orders.filter(o => o.status === "delivered");
+            if (delivered.length === 0) {
+              await lenwyreply("Belum ada pesanan yang bisa di-review 🙏");
+            } else {
+              const latest = delivered[0];
+              startRatingFlow(normalizedSender, latest.order_number);
+              await lenwyreply(`Kasih rating untuk pesanan *${latest.order_number}* yuk!\n\nBerapa bintang (1-5)? ⭐\n1 = Buruk\n3 = Cukup\n5 = Sangat Baik`);
+            }
+          }
+          return;
+        }
+
+        // 5f. Bundles / Paket
+        if (intent === "bundle") {
+          const bundles = getAllBundles(ownerId) || [];
+          if (bundles.length === 0) {
+            await lenwyreply("Belum ada paket bundling yang tersedia saat ini 🙏");
+          } else {
+            let text = "📦 *Paket Bundling Tersedia*\n\n";
+            for (const b of bundles.slice(0, 10)) {
+              const items = getBundleWithItems(b.id);
+              text += `*${b.name}*\n`;
+              text += `Harga paket: ${formatCurrency(b.bundle_price)}`;
+              if (b.original_price) text += ` (hemat ${formatCurrency(b.original_price - b.bundle_price)})`;
+              text += "\n";
+              if (items?.items?.length) {
+                items.items.forEach(i => { text += `  - ${i.product_name} x${i.qty}\n`; });
+              }
+              text += "\n";
+            }
+            text += "_Mau pesan paket? Langsung bilang aja!_ 😊";
+            await lenwyreply(text);
+          }
           return;
         }
 
@@ -554,7 +761,11 @@ export default async (lenwy, m, meta) => {
           text += `📋 *Cek Pesanan* — ketik "cek pesanan saya"\n`;
           text += `💳 *Info Pembayaran* — ketik "cara bayar" atau "info pembayaran"\n`;
           text += `❓ *Tanya-Tanya* — langsung tanya aja, misal "ada promo gak?"\n`;
-          text += `🎫 *Buat Tiket Support* — kalau ada keluhan, bilang aja "mau buat tiket"\n\n`;
+          text += `🎫 *Buat Tiket Support* — kalau ada keluhan, bilang aja "mau buat tiket"\n`;
+          text += `💎 *Cek Poin Loyalty* — ketik "cek poin" atau "loyalty"\n`;
+          text += `🎁 *Program Referral* — ketik "referral" untuk dapat kode\n`;
+          text += `⭐ *Kasih Rating* — ketik "rating" untuk review pesanan\n`;
+          text += `📦 *Paket Bundling* — ketik "paket" atau "bundle"\n\n`;
           text += `_Langsung chat aja ya, gak perlu pakai format khusus!_ 😊`;
           await lenwyreply(text);
           return;

@@ -1,7 +1,8 @@
-import { getLowStockProducts, getDeliveredOrdersForFollowup, markFollowupSent, getUnpaidOrdersOlderThan } from "../../database/business/db.js";
+import { getLowStockProducts, getDeliveredOrdersForFollowup, markFollowupSent, getUnpaidOrdersOlderThan, getAllTickets } from "../../database/business/db.js";
 import { formatCurrency } from "../../database/business/helpers.js";
 
 const notifiedLowStock = new Set();
+const notifiedUrgentTickets = new Set();
 const NOTIFY_COOLDOWN = 6 * 60 * 60 * 1000;
 
 export async function checkLowStock(lenwy, ownerId, ownerJid) {
@@ -57,6 +58,28 @@ export async function sendDeliveryFollowups(lenwy, ownerId) {
   }
 }
 
+export async function notifyUrgentTickets(lenwy, ownerId, ownerJid) {
+  const openTickets = getAllTickets("open", 20, ownerId);
+  const urgent = openTickets.filter(t => t.priority === "high" || t.priority === "urgent");
+  const toNotify = urgent.filter(t => {
+    if (notifiedUrgentTickets.has(t.ticket_number)) return false;
+    const created = new Date(t.created_at).getTime();
+    if (Date.now() - created > 60 * 60 * 1000) return false;
+    notifiedUrgentTickets.add(t.ticket_number);
+    return true;
+  });
+  if (toNotify.length === 0) return;
+  let msg = "🚨 *Tiket Urgent Baru*\n\n";
+  for (const t of toNotify) {
+    const name = t.customer_name || "Unknown";
+    msg += `• *${t.ticket_number}* — ${t.subject}\n  Prioritas: ${t.priority === "urgent" ? "🔴 Urgent" : "🟠 High"} | Customer: ${name}\n`;
+  }
+  msg += "\nSegera cek di dashboard!";
+  try {
+    await lenwy.sendMessage(ownerJid, { text: msg });
+  } catch (_) {}
+}
+
 let intervalRef = null;
 
 export function startNotificationScheduler(lenwy, ownerId, ownerJid) {
@@ -66,6 +89,7 @@ export function startNotificationScheduler(lenwy, ownerId, ownerJid) {
       await checkLowStock(lenwy, ownerId, ownerJid);
       await sendPaymentReminders(lenwy, ownerId);
       await sendDeliveryFollowups(lenwy, ownerId);
+      await notifyUrgentTickets(lenwy, ownerId, ownerJid);
     } catch (_) {}
   }, 30 * 60 * 1000);
 }

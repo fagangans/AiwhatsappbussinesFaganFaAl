@@ -217,7 +217,9 @@ async function showPage(page) {
   const titles = {
     dashboard: "Dashboard", products: "Produk", orders: "Order", customers: "Customer",
     tickets: "Tiket Support", faq: "FAQ", templates: "Template", broadcast: "Broadcast",
-    agents: "Agents", vouchers: "Voucher", paymentmethods: "Pembayaran", botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
+    agents: "Agents", vouchers: "Voucher", paymentmethods: "Pembayaran",
+    loyalty: "Loyalty & Poin", referral: "Referral", bundles: "Paket Combo",
+    botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
     clients: "Kelola Client", settings: "Pengaturan Bisnis",
   };
   document.getElementById("pageTitle").textContent = titles[page] || page;
@@ -233,6 +235,9 @@ async function showPage(page) {
     agents: "Kelola agen CS yang menangani chat customer.",
     vouchers: "Buat dan kelola kode voucher/diskon untuk pelanggan.",
     paymentmethods: "Atur metode pembayaran yang ditawarkan ke customer saat checkout.",
+    loyalty: "Kelola sistem poin loyalitas — customer dapat poin setiap belanja, tukar jadi diskon.",
+    referral: "Program referral — customer ajak teman, keduanya dapat reward.",
+    bundles: "Buat paket combo produk dengan harga spesial untuk naikkan penjualan.",
     botmanager: "Tambah, hapus, atau atur bot WhatsApp yang terhubung.",
     important: "Pesan masuk yang terdeteksi penting atau mendesak.",
     analytics: "Grafik dan statistik performa bot secara detail.",
@@ -256,6 +261,9 @@ async function showPage(page) {
       case "agents": await renderAgents(content); break;
       case "vouchers": await renderVouchers(content); break;
       case "paymentmethods": await renderPaymentMethods(content); break;
+      case "loyalty": await renderLoyalty(content); break;
+      case "referral": await renderReferral(content); break;
+      case "bundles": await renderBundles(content); break;
       case "botmanager": await renderBotManager(content); break;
       case "important": await renderImportant(content); break;
       case "analytics": await renderAnalytics(content); break;
@@ -297,7 +305,7 @@ async function renderDashboard(el) {
         </div>
       </div>
     </div>
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
       <div class="card p-5">
         <h3 class="font-bold text-gray-800 mb-4"><i class="fas fa-chart-pie mr-2 text-blue-500"></i>Ringkasan Order</h3>
         <div class="space-y-3">
@@ -321,7 +329,26 @@ async function renderDashboard(el) {
           <p><span class="text-gray-500">Kepuasan:</span> <span class="font-medium">${stats.satisfaction_avg}/5 ⭐</span></p>
         </div>
       </div>
+    </div>
+    <div id="lowStockAlert"></div>`;
+  loadLowStockAlert();
+}
+
+async function loadLowStockAlert() {
+  try {
+    const lowStock = await api("/api/products/low-stock?threshold=5");
+    const el = document.getElementById("lowStockAlert");
+    if (!el || lowStock.length === 0) return;
+    el.innerHTML = `<div class="card p-4 border-l-4 border-yellow-400 bg-yellow-50">
+      <h4 class="font-bold text-yellow-800 mb-2"><i class="fas fa-exclamation-triangle mr-2"></i>Stok Menipis (${lowStock.length} produk)</h4>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+        ${lowStock.map(p => `<div class="flex justify-between items-center p-2 bg-white rounded border">
+          <span class="text-sm truncate">${p.name}</span>
+          <span class="badge ${p.stock <= 0 ? 'badge-red' : 'badge-yellow'} shrink-0">${p.stock <= 0 ? 'Habis' : 'Sisa ' + p.stock}</span>
+        </div>`).join("")}
+      </div>
     </div>`;
+  } catch(e) { /* ignore */ }
 }
 
 // ===== PRODUCTS =====
@@ -516,18 +543,20 @@ async function renderCustomers(el) {
     </div>
     <div class="card overflow-x-auto">
       <table>
-        <thead><tr><th>Nama</th><th>Telepon</th><th>Tags</th><th>Order</th><th>Total Belanja</th><th>Rating</th><th>Terakhir</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>Nama</th><th>Telepon</th><th>Lead</th><th>Poin</th><th>Order</th><th>Total Belanja</th><th>Rating</th><th>Terakhir</th><th>Aksi</th></tr></thead>
         <tbody id="custTable">${customers.map(c => {
           const tags = JSON.parse(c.tags || "[]");
+          const tierBadge = c.lead_tier === "hot" ? "badge-red" : c.lead_tier === "warm" ? "badge-yellow" : "badge-gray";
           return `<tr>
             <td class="font-medium">${c.name || "Tanpa Nama"} ${c.is_blocked ? '<span class="badge badge-red">Blokir</span>' : ""}</td>
             <td class="font-mono text-xs">${c.phone}</td>
-            <td>${tags.map(t=>`<span class="badge badge-blue">${t}</span>`).join(" ")}</td>
+            <td><span class="badge ${tierBadge}">${(c.lead_tier||'cold').toUpperCase()}</span></td>
+            <td class="text-yellow-600 font-medium">${c.loyalty_points || 0}</td>
             <td>${c.total_orders}</td>
             <td>${formatCurrency(c.total_spent)}</td>
             <td>${c.satisfaction_avg ? c.satisfaction_avg.toFixed(1)+"⭐" : "-"}</td>
             <td class="text-xs text-gray-500">${formatDate(c.last_contact)}</td>
-            <td><button onclick="viewCustomer(${c.id},'${c.jid}')" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button></td>
+            <td><button onclick="viewCustomerDetail(${c.id})" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button></td>
           </tr>`; }).join("")}</tbody>
       </table>
       ${customers.length === 0 ? '<p class="text-center py-8 text-gray-400">Belum ada customer</p>' : ""}
@@ -700,17 +729,31 @@ function showNewBroadcast() {
       <div><label class="block text-sm font-medium mb-1">Judul *</label><input id="bcTitle"></div>
       <div><label class="block text-sm font-medium mb-1">Pesan *</label><textarea id="bcMsg" rows="4"></textarea></div>
       <div><label class="block text-sm font-medium mb-1">Target Tags (kosong = semua)</label><input id="bcTags" placeholder="VIP, Loyal"></div>
+      <div><label class="block text-sm font-medium mb-1">Atau pilih segmen</label><select id="bcSegment" onchange="previewSegmentCount()"><option value="">-- Tanpa segmen (pakai tags) --</option><option value="new_30d">Customer baru (30 hari)</option><option value="inactive_30d">Customer tidak aktif (30 hari)</option><option value="repeat_buyers">Repeat buyer (2+ order)</option><option value="high_spenders">High spender (500rb+)</option><option value="hot_leads">Hot leads</option><option value="warm_leads">Warm leads</option><option value="cold_leads">Cold leads</option><option value="low_satisfaction">Rating rendah (&lt;3)</option></select><span id="segmentCount" class="text-xs text-gray-500 mt-1"></span></div>
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="bcSendNow" checked onchange="document.getElementById('bcScheduleWrap').classList.toggle('hidden',this.checked)"> Kirim sekarang</label>
       <div id="bcScheduleWrap" class="hidden"><label class="block text-sm font-medium mb-1">Jadwalkan untuk</label><input id="bcScheduleAt" type="datetime-local"></div>
       <div class="flex gap-2 justify-end"><button onclick="closeModal()" class="btn btn-outline">Batal</button><button onclick="doBroadcast()" class="btn btn-primary">Kirim</button></div>
     </div>`);
 }
 
+async function previewSegmentCount() {
+  const seg = document.getElementById("bcSegment").value;
+  const el = document.getElementById("segmentCount");
+  if (!seg) { el.textContent = ""; return; }
+  try { const r = await api(`/api/segments/${seg}/count`); el.textContent = `${r.count} customer di segmen ini`; } catch { el.textContent = ""; }
+}
+
 async function doBroadcast() {
   const t = document.getElementById("bcTitle").value, m = document.getElementById("bcMsg").value;
   if (!t||!m) return toast("Judul dan pesan wajib","error");
+  const segment = document.getElementById("bcSegment").value;
   const tags = document.getElementById("bcTags").value.split(",").map(s=>s.trim()).filter(Boolean);
   const sendNow = document.getElementById("bcSendNow").checked;
+  if (segment) {
+    if (!sendNow) return toast("Broadcast segmen hanya bisa kirim langsung (belum support jadwal)", "error");
+    await api("/api/broadcasts/segment", { method: "POST", body: { title: t, message: m, segment, botId: selectedBotId } });
+    closeModal(); toast("Broadcast segmen dikirim"); showPage("broadcast"); return;
+  }
   if (!sendNow) {
     const schedAt = document.getElementById("bcScheduleAt").value;
     if (!schedAt) return toast("Pilih waktu jadwal","error");
@@ -1437,6 +1480,217 @@ async function exportCSV(type) {
     a.click(); URL.revokeObjectURL(url);
     toast("File CSV berhasil didownload");
   } catch(e) { toast("Gagal export: " + e.message, "error"); }
+}
+
+// ===== LOYALTY =====
+async function renderLoyalty(el) {
+  const settings = await api("/api/loyalty/settings");
+  const customers = await api("/api/customers?limit=200");
+  const topCustomers = customers.filter(c => (c.loyalty_points || 0) > 0).sort((a,b) => (b.loyalty_points||0) - (a.loyalty_points||0)).slice(0,20);
+  el.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+      <div class="card p-6">
+        <h3 class="font-bold mb-4"><i class="fas fa-cog mr-2 text-blue-500"></i>Pengaturan Loyalty</h3>
+        <div class="space-y-3">
+          <div><label class="block text-sm text-gray-600 mb-1">Poin per Rp1 belanja</label><input id="loyPtsPerRp" type="number" step="0.001" value="${settings.points_per_rupiah || 0.01}"></div>
+          <div><label class="block text-sm text-gray-600 mb-1">Min. poin untuk tukar</label><input id="loyMinRedeem" type="number" value="${settings.min_redeem || 100}"></div>
+          <div><label class="block text-sm text-gray-600 mb-1">Nilai tukar per poin (Rp)</label><input id="loyRedeemVal" type="number" value="${settings.redeem_value || 1000}"></div>
+          <div class="flex items-center gap-2"><input type="checkbox" id="loyActive" ${settings.is_active ? "checked" : ""}><label for="loyActive">Program aktif</label></div>
+          <button onclick="saveLoyaltySettings()" class="btn btn-primary write-action">Simpan</button>
+        </div>
+      </div>
+      <div class="card p-6">
+        <h3 class="font-bold mb-4"><i class="fas fa-trophy mr-2 text-yellow-500"></i>Top Customer (Poin)</h3>
+        ${topCustomers.length > 0 ? `<table><thead><tr><th>Customer</th><th>Poin</th></tr></thead><tbody>
+          ${topCustomers.map(c => `<tr><td>${c.name || c.phone}</td><td class="font-bold text-yellow-600">${c.loyalty_points || 0}</td></tr>`).join("")}
+        </tbody></table>` : '<p class="text-center text-gray-400 py-4">Belum ada customer dengan poin</p>'}
+      </div>
+    </div>
+    <div class="card p-6">
+      <h3 class="font-bold mb-4"><i class="fas fa-hand-holding-heart mr-2 text-green-500"></i>Tambah Poin Manual</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <select id="loyCustomer"><option value="">Pilih Customer</option>${customers.map(c => `<option value="${c.id}">${c.name || c.phone}</option>`).join("")}</select>
+        <input id="loyPoints" type="number" placeholder="Jumlah poin">
+        <div class="flex gap-2"><input id="loyReason" placeholder="Alasan"><button onclick="addManualPoints()" class="btn btn-success write-action">Tambah</button></div>
+      </div>
+    </div>`;
+}
+
+async function saveLoyaltySettings() {
+  try {
+    await api("/api/loyalty/settings", { method: "PUT", body: {
+      points_per_rupiah: parseFloat(document.getElementById("loyPtsPerRp").value) || 0.01,
+      min_redeem: parseInt(document.getElementById("loyMinRedeem").value) || 100,
+      redeem_value: parseFloat(document.getElementById("loyRedeemVal").value) || 1000,
+      is_active: document.getElementById("loyActive").checked ? 1 : 0,
+    }});
+    toast("Pengaturan loyalty disimpan");
+  } catch(e) { toast(e.message, "error"); }
+}
+
+async function addManualPoints() {
+  const customerId = document.getElementById("loyCustomer").value;
+  const points = parseInt(document.getElementById("loyPoints").value);
+  const reason = document.getElementById("loyReason").value || "Manual";
+  if (!customerId || !points) return toast("Pilih customer dan jumlah poin", "error");
+  try {
+    await api("/api/loyalty/add", { method: "POST", body: { customerId: parseInt(customerId), points, reason } });
+    toast("Poin ditambahkan"); showPage("loyalty");
+  } catch(e) { toast(e.message, "error"); }
+}
+
+// ===== REFERRAL =====
+async function renderReferral(el) {
+  const referrals = await api("/api/referrals");
+  el.innerHTML = `
+    <div class="card p-6 mb-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-bold"><i class="fas fa-share-alt mr-2 text-pink-500"></i>Daftar Referral</h3>
+        <span class="badge badge-blue">${referrals.length} referral</span>
+      </div>
+      ${referrals.length > 0 ? `
+      <div class="overflow-x-auto"><table><thead><tr><th>Pengajak</th><th>Yang Diajak</th><th>Kode</th><th>Reward</th><th>Tanggal</th></tr></thead><tbody>
+        ${referrals.map(r => `<tr>
+          <td>${r.referrer_name || r.referrer_jid}</td>
+          <td>${r.referred_name || r.referred_jid}</td>
+          <td class="font-mono text-xs">${r.referral_code}</td>
+          <td>${r.reward_given ? '<span class="badge badge-green">Sudah</span>' : '<span class="badge badge-yellow">Belum</span>'}</td>
+          <td class="text-xs">${formatDate(r.created_at)}</td>
+        </tr>`).join("")}
+      </tbody></table></div>` : '<p class="text-center text-gray-400 py-8">Belum ada referral. Customer bisa minta kode referral via WhatsApp dengan ketik "kode referral".</p>'}
+    </div>
+    <div class="card p-4">
+      <p class="text-sm text-gray-600"><i class="fas fa-info-circle mr-1 text-blue-400"></i> Customer otomatis dapat kode referral lewat WhatsApp. Saat teman yang diajak order pertama kali, pengajak dapat poin loyalty sebagai reward.</p>
+    </div>`;
+}
+
+// ===== BUNDLES =====
+async function renderBundles(el) {
+  const bundles = await api("/api/bundles");
+  el.innerHTML = `
+    <div class="flex justify-between items-center mb-4">
+      <span class="badge badge-blue">${bundles.length} paket</span>
+      <button onclick="showAddBundle()" class="btn btn-primary write-action"><i class="fas fa-plus mr-1"></i>Tambah Bundle</button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      ${bundles.map(b => `<div class="card p-4">
+        <div class="flex justify-between items-start mb-2">
+          <h4 class="font-bold">${b.name}</h4>
+          <button onclick="delBundle(${b.id},'${(b.name||'').replace(/'/g,"\\'")}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button>
+        </div>
+        <p class="text-sm text-gray-500 mb-2">${b.description || '-'}</p>
+        <div class="flex justify-between items-center">
+          <div>
+            ${b.original_price ? `<span class="text-xs text-gray-400 line-through">${formatCurrency(b.original_price)}</span>` : ''}
+            <span class="font-bold text-green-600">${formatCurrency(b.bundle_price)}</span>
+          </div>
+          <button onclick="viewBundle(${b.id})" class="btn btn-outline text-xs">Detail</button>
+        </div>
+      </div>`).join("") || '<div class="col-span-full text-center text-gray-400 py-8">Belum ada bundle. Buat paket combo produk untuk meningkatkan penjualan!</div>'}
+    </div>`;
+}
+
+async function showAddBundle() {
+  const products = await api("/api/products");
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-cubes mr-2 text-indigo-500"></i>Tambah Bundle</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm text-gray-600 mb-1">Nama Bundle</label><input id="bdlName" placeholder="Paket Hemat A"></div>
+      <div><label class="block text-sm text-gray-600 mb-1">Deskripsi</label><input id="bdlDesc" placeholder="Deskripsi singkat"></div>
+      <div><label class="block text-sm text-gray-600 mb-1">Harga Bundle (Rp)</label><input id="bdlPrice" type="number" placeholder="Harga spesial paket"></div>
+      <div><label class="block text-sm text-gray-600 mb-1">Produk dalam bundle</label>
+        <div id="bdlItems" class="space-y-2">
+          <div class="flex gap-2"><select class="bdl-prod">${products.map(p => `<option value="${p.id}">${p.name} (${formatCurrency(p.price)})</option>`).join("")}</select><input type="number" class="bdl-qty w-20" value="1" min="1" placeholder="Qty"></div>
+        </div>
+        <button onclick="addBundleRow()" class="btn btn-outline text-xs mt-2"><i class="fas fa-plus mr-1"></i>Tambah produk</button>
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button onclick="closeModal()" class="btn btn-outline">Batal</button>
+        <button onclick="saveBundle()" class="btn btn-primary">Simpan</button>
+      </div>
+    </div>`);
+  window._bdlProducts = products;
+}
+
+function addBundleRow() {
+  const prods = window._bdlProducts || [];
+  const row = document.createElement("div");
+  row.className = "flex gap-2";
+  row.innerHTML = `<select class="bdl-prod">${prods.map(p => `<option value="${p.id}">${p.name} (${formatCurrency(p.price)})</option>`).join("")}</select><input type="number" class="bdl-qty w-20" value="1" min="1"><button onclick="this.parentElement.remove()" class="btn btn-danger text-xs py-1 px-2"><i class="fas fa-times"></i></button>`;
+  document.getElementById("bdlItems").appendChild(row);
+}
+
+async function saveBundle() {
+  const name = document.getElementById("bdlName").value.trim();
+  const bundle_price = parseFloat(document.getElementById("bdlPrice").value);
+  if (!name || !bundle_price) return toast("Nama dan harga wajib diisi", "error");
+  const prods = document.querySelectorAll(".bdl-prod");
+  const qtys = document.querySelectorAll(".bdl-qty");
+  const items = [];
+  prods.forEach((sel, i) => { items.push({ product_id: parseInt(sel.value), qty: parseInt(qtys[i]?.value) || 1 }); });
+  try {
+    await api("/api/bundles", { method: "POST", body: { name, description: document.getElementById("bdlDesc").value, bundle_price, items } });
+    closeModal(); toast("Bundle ditambahkan"); showPage("bundles");
+  } catch(e) { toast(e.message, "error"); }
+}
+
+async function viewBundle(id) {
+  const b = await api(`/api/bundles/${id}`);
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-cubes mr-2 text-indigo-500"></i>${b.name}</h3>
+    <p class="text-sm text-gray-500 mb-3">${b.description || ''}</p>
+    <table class="mb-3"><thead><tr><th>Produk</th><th>Qty</th><th>Harga Satuan</th></tr></thead><tbody>
+      ${(b.items||[]).map(i => `<tr><td>${i.product_name}</td><td>${i.qty}</td><td>${formatCurrency(i.product_price)}</td></tr>`).join("")}
+    </tbody></table>
+    <div class="flex justify-between items-center pt-2 border-t">
+      <span class="text-sm text-gray-500">Harga normal: ${formatCurrency((b.items||[]).reduce((s,i) => s + i.product_price * i.qty, 0))}</span>
+      <span class="font-bold text-green-600 text-lg">${formatCurrency(b.bundle_price)}</span>
+    </div>
+    <div class="flex justify-end mt-4"><button onclick="closeModal()" class="btn btn-outline">Tutup</button></div>`);
+}
+
+async function delBundle(id, name) {
+  if (!confirm(`Hapus bundle "${name}"?`)) return;
+  await api(`/api/bundles/${id}`, { method: "DELETE" }); toast("Bundle dihapus"); showPage("bundles");
+}
+
+// ===== CUSTOMER DETAIL ENHANCED =====
+async function viewCustomerDetail(id) {
+  const customers = await api("/api/customers");
+  const customer = customers.find(c => c.id === id);
+  if (!customer) return toast("Customer tidak ditemukan", "error");
+  const [timeline, addresses, orders, tickets] = await Promise.all([
+    api(`/api/customers/${id}/timeline`),
+    api(`/api/customers/${id}/addresses`),
+    api(`/api/customers/${id}/orders`),
+    api(`/api/customers/${id}/tickets`),
+  ]);
+  const tierColors = { hot: "badge-red", warm: "badge-yellow", cold: "badge-blue" };
+  showModal(`
+    <h3 class="text-lg font-bold mb-2">${customer.name || customer.phone}</h3>
+    <div class="flex gap-2 flex-wrap mb-4">
+      <span class="badge ${tierColors[customer.lead_tier] || 'badge-gray'}">${(customer.lead_tier||'cold').toUpperCase()}</span>
+      <span class="badge badge-blue">${customer.loyalty_points || 0} poin</span>
+      <span class="badge badge-green">${customer.total_orders || 0} order</span>
+      <span class="badge badge-yellow">${formatCurrency(customer.total_spent || 0)}</span>
+      ${customer.referral_code ? `<span class="badge badge-gray">REF: ${customer.referral_code}</span>` : ''}
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+      <div><h4 class="text-sm font-bold mb-2">Alamat Tersimpan</h4>
+        ${addresses.length > 0 ? addresses.map(a => `<div class="text-sm p-2 border rounded mb-1 ${a.is_default?'border-blue-400 bg-blue-50':''}"><b>${a.label}</b>${a.is_default?' (Default)':''}: ${a.address}</div>`).join("") : '<p class="text-xs text-gray-400">Belum ada alamat</p>'}
+      </div>
+      <div><h4 class="text-sm font-bold mb-2">Order Terakhir</h4>
+        ${orders.slice(0,3).map(o => `<div class="text-sm p-2 border rounded mb-1">${o.order_number} — ${statusBadge(o.status)} ${formatCurrency(o.total)}</div>`).join("") || '<p class="text-xs text-gray-400">Belum ada order</p>'}
+      </div>
+    </div>
+    <h4 class="text-sm font-bold mb-2">Timeline Aktivitas</h4>
+    <div class="max-h-60 overflow-y-auto border rounded p-2">
+      ${timeline.slice(0,20).map(t => {
+        const icon = t.type === 'message' ? (t.direction === 'in' ? '<i class="fas fa-comment text-blue-400"></i>' : '<i class="fas fa-reply text-green-400"></i>') : t.type === 'order' ? '<i class="fas fa-shopping-cart text-purple-400"></i>' : t.type === 'ticket' ? '<i class="fas fa-ticket-alt text-orange-400"></i>' : '<i class="fas fa-star text-yellow-400"></i>';
+        return `<div class="flex gap-2 py-1 border-b text-xs"><span class="shrink-0">${icon}</span><span class="flex-1 truncate">${t.detail || '-'}</span><span class="text-gray-400 shrink-0">${formatDate(t.ts)}</span></div>`;
+      }).join("") || '<p class="text-center text-gray-400 py-2">Tidak ada aktivitas</p>'}
+    </div>
+    <div class="flex justify-end mt-4"><button onclick="closeModal()" class="btn btn-outline">Tutup</button></div>`);
 }
 
 // ===== INIT =====
