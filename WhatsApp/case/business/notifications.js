@@ -1,5 +1,6 @@
 import { getLowStockProducts, getDeliveredOrdersForFollowup, markFollowupSent, getUnpaidOrdersOlderThan, getAllTickets } from "../../database/business/db.js";
 import { formatCurrency } from "../../database/business/helpers.js";
+import { throttledSend, delay } from "./rate-limiter.js";
 
 const notifiedLowStock = new Set();
 const notifiedUrgentTickets = new Set();
@@ -22,7 +23,7 @@ export async function checkLowStock(lenwy, ownerId, ownerJid) {
   }
   msg += "\nSegera restock ya!";
   try {
-    await lenwy.sendMessage(ownerJid, { text: msg });
+    await throttledSend(lenwy, ownerJid, { text: msg });
   } catch (_) {}
 }
 
@@ -33,27 +34,31 @@ export async function notifyNewOrder(lenwy, ownerJid, order, customerName) {
   if (order.notes) msg += `Catatan: ${order.notes}\n`;
   msg += `\nCek di dashboard untuk proses pesanan.`;
   try {
-    await lenwy.sendMessage(ownerJid, { text: msg });
+    await throttledSend(lenwy, ownerJid, { text: msg });
   } catch (_) {}
 }
 
 export async function sendPaymentReminders(lenwy, ownerId) {
   const unpaid = getUnpaidOrdersOlderThan(24, ownerId);
-  for (const order of unpaid) {
+  const batch = unpaid.slice(0, 20); // Limit per cycle
+  for (const order of batch) {
     const msg = `⏰ Halo ${order.customer_name || "Kak"}!\n\nPesanan *${order.order_number}* senilai ${formatCurrency(order.total)} belum dibayar.\n\nSilakan lakukan pembayaran atau ketik *.batalorder ${order.order_number}* untuk membatalkan.\n\nTerima kasih! 🙏`;
     try {
-      await lenwy.sendMessage(order.customer_jid, { text: msg });
+      await throttledSend(lenwy, order.customer_jid, { text: msg });
+      await delay(3000);
     } catch (_) {}
   }
 }
 
 export async function sendDeliveryFollowups(lenwy, ownerId) {
   const delivered = getDeliveredOrdersForFollowup(ownerId);
-  for (const order of delivered) {
+  const batch = delivered.slice(0, 20); // Limit per cycle
+  for (const order of batch) {
     const msg = `Halo ${order.customer_name || "Kak"}! 😊\n\nPesanan *${order.order_number}* sudah diterima ya?\n\nKalau ada masalah, silakan buat tiket support:\n*.buattiket Masalah Order ${order.order_number} | [jelaskan masalahnya]*\n\nAtau beri rating:\n*.rating ${order.order_number} | [1-5] | [komentar]*\n\nTerima kasih sudah belanja! 🙏`;
     try {
-      await lenwy.sendMessage(order.customer_jid, { text: msg });
+      await throttledSend(lenwy, order.customer_jid, { text: msg });
       markFollowupSent(order.order_number);
+      await delay(3000);
     } catch (_) {}
   }
 }
@@ -76,7 +81,7 @@ export async function notifyUrgentTickets(lenwy, ownerId, ownerJid) {
   }
   msg += "\nSegera cek di dashboard!";
   try {
-    await lenwy.sendMessage(ownerJid, { text: msg });
+    await throttledSend(lenwy, ownerJid, { text: msg });
   } catch (_) {}
 }
 

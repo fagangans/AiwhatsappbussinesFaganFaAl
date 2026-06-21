@@ -8,6 +8,8 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
 
+import { bulkSend, getRateLimitStatus } from "../WhatsApp/case/business/rate-limiter.js";
+
 import db, {
   getProfile, updateProfile,
   getAllCustomers, getCustomer, updateCustomer, searchCustomers, getCustomerCount,
@@ -627,15 +629,8 @@ export default function startDashboard() {
       } else {
         customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
       }
-      let sent = 0;
-      for (const customer of customers) {
-        try {
-          await waSocket.sendMessage(customer.jid, { text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` });
-          sent++;
-          await new Promise(r => setTimeout(r, 1000));
-        } catch { /* skip */ }
-      }
-      updateBroadcastStatus(bc.id, "sent", sent);
+      const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }));
+      updateBroadcastStatus(bc.id, "sent", result.sent);
     }
     res.json({ success: true, broadcast: bc });
   });
@@ -842,15 +837,8 @@ export default function startDashboard() {
         } else {
           customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
         }
-        let sent = 0;
-        for (const customer of customers) {
-          try {
-            await waSocket.sendMessage(customer.jid, { text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` });
-            sent++;
-            await new Promise(r => setTimeout(r, 1000));
-          } catch { /* skip */ }
-        }
-        updateBroadcastStatus(bc.id, "sent", sent);
+        const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }));
+        updateBroadcastStatus(bc.id, "sent", result.sent);
       }, delay);
     }
     res.json({ success: true, broadcast: bc, scheduled_at: scheduledAt });
@@ -981,15 +969,8 @@ export default function startDashboard() {
     const waSocket = getSocket(botId);
     if (waSocket) {
       (async () => {
-        let sent = 0;
-        for (const customer of customers) {
-          try {
-            await waSocket.sendMessage(customer.jid, { text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` });
-            sent++;
-            await new Promise(r => setTimeout(r, 1000));
-          } catch { /* skip */ }
-        }
-        updateBroadcastStatus(bc.id, "sent", sent);
+        const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` }));
+        updateBroadcastStatus(bc.id, "sent", result.sent);
       })();
     }
     res.json({ success: true, broadcast: bc, recipients: customers.length });
@@ -1016,6 +997,11 @@ export default function startDashboard() {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", "attachment; filename=tickets.csv");
     res.send(csv);
+  });
+
+  // ===== RATE LIMIT STATUS =====
+  app.get("/api/rate-limit-status", auth, (req, res) => {
+    res.json(getRateLimitStatus());
   });
 
   // ===== SPA FALLBACK =====

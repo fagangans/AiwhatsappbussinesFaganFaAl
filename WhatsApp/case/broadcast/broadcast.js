@@ -4,6 +4,7 @@ import {
   addTemplate, getTemplate, getAllTemplates, deleteTemplate,
 } from "../../database/business/db.js";
 import { formatDate } from "../../database/business/helpers.js";
+import { bulkSend } from "../business/rate-limiter.js";
 
 export const info = {
   name: "Broadcast & Templates",
@@ -68,22 +69,10 @@ export default async function handler(leni) {
 
       const bc = createBroadcast(title, message, targetTags, ownerId);
 
-      let sent = 0;
-      let failed = 0;
+      const result = await bulkSend(lenwy, customers, (c) => ({ text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` }));
 
-      for (const customer of customers) {
-        try {
-          const fullMessage = `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}`;
-          await lenwy.sendMessage(customer.jid, { text: fullMessage });
-          sent++;
-          await new Promise(r => setTimeout(r, 1000));
-        } catch (e) {
-          failed++;
-        }
-      }
-
-      updateBroadcastStatus(bc.id, "sent", sent);
-      await LenwyText(`✅ *Broadcast Selesai!*\n\n📢 ${title}\n✅ Terkirim: ${sent}\n❌ Gagal: ${failed}\nTotal target: ${customers.length}`);
+      updateBroadcastStatus(bc.id, "sent", result.sent);
+      await LenwyText(`✅ *Broadcast Selesai!*\n\n📢 ${title}\n✅ Terkirim: ${result.sent}\n❌ Gagal: ${result.failed}\n⏭️ Dilewati: ${result.skipped}\nTotal target: ${customers.length}`);
       break;
     }
 
