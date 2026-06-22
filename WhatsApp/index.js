@@ -42,6 +42,7 @@ const reconnectAttempts = new Map();
 const reconnectTimers = new Map();
 const latestQr = new Map();
 const connectErrors = new Map();
+const conflictStreaks = new Map();
 
 // QR code mentah (string) terbaru untuk bot yang sedang pairing via QR.
 // Di-render jadi gambar oleh dashboard (lihat dashboard/server.js), bukan di sini.
@@ -62,6 +63,7 @@ export function stopBot(botId) {
   reconnectAttempts.delete(botId);
   latestQr.delete(botId);
   connectErrors.delete(botId);
+  conflictStreaks.delete(botId);
   const timer = reconnectTimers.get(botId);
   if (timer) {
     clearTimeout(timer);
@@ -102,6 +104,15 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   const sessionId = Date.now();
   activeSessions.set(botId, sessionId);
   connectErrors.delete(botId);
+
+  // Tutup socket lama (kalau masih ada) sebelum buat yang baru, supaya tidak
+  // ada 2 socket hidup bersamaan untuk botId yang sama — itu sendiri bisa
+  // memicu stream conflict di sisi server WhatsApp.
+  const staleSock = currentSockets.get(botId);
+  if (staleSock) {
+    currentSockets.delete(botId);
+    try { staleSock.end(new Error("Membuat ulang koneksi, menutup socket lama")); } catch {}
+  }
 
   let lenwy, saveCreds;
   try {
@@ -165,17 +176,28 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         return;
       }
       currentSockets.delete(botId);
+      if (dashboardApp && dashboardApp.removeWaSocket) {
+        dashboardApp.removeWaSocket(botId);
+      }
 
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+      const reasonText = lastDisconnect?.error?.output?.payload?.message || lastDisconnect?.error?.message || "";
+
+      // WhatsApp memakai statusCode 401 untuk DUA kasus berbeda: logout asli,
+      // ATAU stream conflict sementara (biasanya device lain login bersamaan
+      // dengan nomor yang sama). Baileys tidak membedakan ini di statusCode,
+      // jadi kita cek teks alasannya juga — kalau "conflict", JANGAN anggap
+      // logout asli (sesi masih valid, tidak perlu pair ulang).
+      const isStreamConflict = statusCode === DisconnectReason.loggedOut && /conflict/i.test(reasonText);
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut && !isStreamConflict;
       const isBadSession = statusCode === DisconnectReason.badSession;
       const isReplaced = statusCode === DisconnectReason.connectionReplaced;
 
       if (isLoggedOut || isBadSession) {
-        const reason = lastDisconnect?.error?.output?.payload?.message || lastDisconnect?.error?.message || "tidak diketahui";
-        console.log(chalk.red(`❌  ${tag} Bot logged out / sesi rusak — perlu pair ulang (statusCode: ${statusCode}, alasan: ${reason})`));
+        console.log(chalk.red(`❌  ${tag} Bot logged out / sesi rusak — perlu pair ulang (statusCode: ${statusCode}, alasan: ${reasonText || "tidak diketahui"})`));
         activeSessions.delete(botId);
         reconnectAttempts.delete(botId);
+        conflictStreaks.delete(botId);
         if (isBadSession) {
           try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch {}
         }
@@ -186,7 +208,23 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         console.log(chalk.red(`❌  ${tag} Koneksi digantikan (login dari device lain) — berhenti reconnect`));
         activeSessions.delete(botId);
         reconnectAttempts.delete(botId);
+        conflictStreaks.delete(botId);
         return;
+      }
+
+      if (isStreamConflict) {
+        const streak = (conflictStreaks.get(botId) || 0) + 1;
+        conflictStreaks.set(botId, streak);
+        if (streak >= 3) {
+          console.log(chalk.red(`❌  ${tag} Konflik sesi berulang ${streak}x — kemungkinan ada device lain (WhatsApp Web/Desktop/HP lain) yang login bersamaan dengan nomor ini. Berhenti reconnect. Sesi TIDAK dihapus, TIDAK perlu pair ulang — cukup pastikan tidak ada device lain yang login, lalu restart bot via dashboard.`));
+          activeSessions.delete(botId);
+          reconnectAttempts.delete(botId);
+          conflictStreaks.delete(botId);
+          return;
+        }
+        console.log(chalk.yellow(`⚠️  ${tag} Konflik sesi terdeteksi (statusCode 401, conflict) — kemungkinan sementara, percobaan ke-${streak}/3 sebelum berhenti...`));
+      } else {
+        conflictStreaks.delete(botId);
       }
 
       const attempts = (reconnectAttempts.get(botId) || 0) + 1;
@@ -196,10 +234,15 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         console.log(chalk.red(`❌  ${tag} Gagal reconnect setelah ${attempts} percobaan — berhenti. Cek koneksi internet / restart bot via dashboard.`));
         activeSessions.delete(botId);
         reconnectAttempts.delete(botId);
+        conflictStreaks.delete(botId);
         return;
       }
 
-      const baseDelay = Math.min(5000 * Math.pow(2, attempts - 1), 300000);
+      // Konflik sesi butuh waktu lebih lama supaya device lain yang bentrok
+      // sempat melepas koneksinya dulu, sebelum kita coba lagi.
+      const baseDelay = isStreamConflict
+        ? Math.min(10000 * Math.pow(2, attempts - 1), 300000)
+        : Math.min(5000 * Math.pow(2, attempts - 1), 300000);
       const jitter = Math.floor(Math.random() * 2000);
       const delay = baseDelay + jitter;
 
@@ -218,6 +261,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       reconnectAttempts.delete(botId);
       latestQr.delete(botId);
       connectErrors.delete(botId);
+      conflictStreaks.delete(botId);
       console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
       if (dashboardApp && dashboardApp.setWaSocket) {
         dashboardApp.setWaSocket(botId, botName, lenwy);
