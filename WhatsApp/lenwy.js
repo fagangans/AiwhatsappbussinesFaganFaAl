@@ -243,11 +243,11 @@ export default async (lenwy, m, meta) => {
 
   const replyJid = msg.key.remoteJid;
 
-  if (!schedulerStarted.has(ownerId)) {
-    schedulerStarted.add(ownerId);
+  if (!schedulerStarted.has(botId || "default")) {
+    schedulerStarted.add(botId || "default");
     const CreatorPathBoot = path.join(process.cwd(), "WhatsApp", "database", "creator.json");
     const bootCreators = readJSONSync(CreatorPathBoot);
-    if (bootCreators.length > 0) startNotificationScheduler(lenwy, ownerId, bootCreators[0]);
+    if (bootCreators.length > 0) startNotificationScheduler(lenwy, ownerId, bootCreators[0], botId || "default");
   }
 
   let authJid = originalSender;
@@ -302,7 +302,7 @@ export default async (lenwy, m, meta) => {
 
   // Custom Reply
   const lenwyreply = async (teks) => {
-    const result = await replySend(lenwy, replyJid, { text: teks }, { quoted: len });
+    const result = await replySend(lenwy, replyJid, { text: teks }, { quoted: len }, botId || "default");
     console.log(chalk.cyan.bold(`[${botId || "Bot"}] Bot Balas`), chalk.white(`-> ${replyJid} : ${teks}`));
     return result;
   };
@@ -434,15 +434,15 @@ export default async (lenwy, m, meta) => {
         const sendOrderResult = async (flowResult) => {
           if (!flowResult) return;
           if (flowResult.imageUrl) {
-            try { await replySend(lenwy, replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }); } catch (_) { await lenwyreply(flowResult.text); }
+            try { await replySend(lenwy, replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }, botId || "default"); } catch (_) { await lenwyreply(flowResult.text); }
           } else {
             await lenwyreply(flowResult.text);
           }
           if (flowResult.order) {
             for (const ownerJid of isCreatorArray) {
-              await notifyNewOrder(lenwy, ownerJid, flowResult.order, flowResult.customerName);
+              await notifyNewOrder(lenwy, ownerJid, flowResult.order, flowResult.customerName, botId || "default");
             }
-            await checkLowStock(lenwy, ownerId, isCreatorArray[0]);
+            await checkLowStock(lenwy, ownerId, isCreatorArray[0], botId || "default");
             // Auto loyalty points on order
             try {
               const settings = getLoyaltySettings(ownerId);
@@ -828,17 +828,17 @@ export default async (lenwy, m, meta) => {
 
   // Helper
   const LenwyText = (text) =>
-    replySend(lenwy, replyJid, { text }, { quoted: len });
+    replySend(lenwy, replyJid, { text }, { quoted: len }, botId || "default");
 
   const LenwyWait = () => lenwyreply(globalThis.mess.wait);
 
   // Send Video
   const LenwyVideo = (url, caption = "") =>
-    replySend(lenwy, replyJid, { video: { url }, caption }, { quoted: len });
+    replySend(lenwy, replyJid, { video: { url }, caption }, { quoted: len }, botId || "default");
 
   // Send Image
   const LenwyImage = (url, caption = "") =>
-    replySend(lenwy, replyJid, { image: { url }, caption }, { quoted: len });
+    replySend(lenwy, replyJid, { image: { url }, caption }, { quoted: len }, botId || "default");
 
   // Send Audio
   const LenwyAudio = (url, ptt = false) =>
@@ -847,6 +847,7 @@ export default async (lenwy, m, meta) => {
       replyJid,
       { audio: { url }, mimetype: "audio/mpeg", ptt },
       { quoted: len },
+      botId || "default",
     );
 
   // Send File
@@ -856,6 +857,7 @@ export default async (lenwy, m, meta) => {
       replyJid,
       { document: buffer, fileName, mimetype: mime },
       { quoted: len },
+      botId || "default",
     );
 
   // Label Menu

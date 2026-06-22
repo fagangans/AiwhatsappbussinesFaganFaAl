@@ -739,7 +739,7 @@ export default function startDashboard() {
       } else {
         customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
       }
-      const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }));
+      const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }), {}, req.body.botId);
       updateBroadcastStatus(bc.id, "sent", result.sent);
     }
     res.json({ success: true, broadcast: bc });
@@ -947,7 +947,7 @@ export default function startDashboard() {
         } else {
           customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
         }
-        const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }));
+        const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }), {}, req.body.botId);
         updateBroadcastStatus(bc.id, "sent", result.sent);
       }, delay);
     }
@@ -1079,7 +1079,7 @@ export default function startDashboard() {
     const waSocket = getSocket(botId);
     if (waSocket) {
       (async () => {
-        const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` }));
+        const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` }), {}, botId);
         updateBroadcastStatus(bc.id, "sent", result.sent);
       })();
     }
@@ -1111,7 +1111,7 @@ export default function startDashboard() {
 
   // ===== RATE LIMIT STATUS =====
   app.get("/api/rate-limit-status", auth, (req, res) => {
-    res.json(getRateLimitStatus());
+    res.json(getRateLimitStatus(req.query.botId || "default"));
   });
 
   // ===== SPA FALLBACK =====

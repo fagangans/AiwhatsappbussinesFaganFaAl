@@ -69,7 +69,7 @@ export default async function handler(leni) {
 
       const bc = createBroadcast(title, message, targetTags, ownerId);
 
-      const result = await bulkSend(lenwy, customers, (c) => ({ text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` }));
+      const result = await bulkSend(lenwy, customers, (c) => ({ text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` }), {}, botId);
 
       updateBroadcastStatus(bc.id, "sent", result.sent);
       await LenwyText(`✅ *Broadcast Selesai!*\n\n📢 ${title}\n✅ Terkirim: ${result.sent}\n❌ Gagal: ${result.failed}\n⏭️ Dilewati: ${result.skipped}\nTotal target: ${customers.length}`);
