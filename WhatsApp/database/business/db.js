@@ -679,6 +679,8 @@ addColSafe("broadcasts", "delivered_count", "INTEGER DEFAULT 0");
 addColSafe("broadcasts", "read_count", "INTEGER DEFAULT 0");
 addColSafe("broadcasts", "failed_count", "INTEGER DEFAULT 0");
 
+addColSafe("business_profile", "welcome_image_url", "TEXT DEFAULT ''");
+
 const adminProfile = db.prepare("SELECT COUNT(*) as c FROM business_profile WHERE owner_id = 1").get();
 if (adminProfile.c === 0) {
   db.prepare("INSERT INTO business_profile (owner_id) VALUES (1)").run();

@@ -26,6 +26,32 @@ async function api(path, options = {}) {
   return res.json();
 }
 
+async function uploadImageFile(file) {
+  const formData = new FormData();
+  formData.append("image", file);
+  const res = await fetch(`${API}/api/products/upload`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData });
+  if (res.status === 401) { logout(); throw new Error("Unauthorized"); }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Upload gagal");
+  return data.url;
+}
+
+async function handleImageUpload(event, previewId, urlInputId) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith("image/")) return toast("File harus berupa gambar", "error");
+  try {
+    const url = await uploadImageFile(file);
+    const urlInput = document.getElementById(urlInputId);
+    const preview = document.getElementById(previewId);
+    if (urlInput) urlInput.value = url;
+    if (preview) { preview.src = url; preview.style.display = "block"; }
+    toast("Foto berhasil diupload");
+  } catch (e) {
+    toast(e.message || "Upload foto gagal", "error");
+  }
+}
+
 // ===== READ-ONLY VIEW MODE (client viewing a bot it was granted access to) =====
 function applyViewMode() {
   document.body.classList.toggle("view-only", !!viewBotId);
@@ -450,6 +476,12 @@ function showAddProduct() {
       <div><label class="block text-sm font-medium mb-1">SKU</label><input id="pSku" placeholder="KP001"></div>
       <div><label class="block text-sm font-medium mb-1">Nama *</label><input id="pName" placeholder="Nama Produk"></div>
       <div><label class="block text-sm font-medium mb-1">Deskripsi</label><textarea id="pDesc" rows="2" placeholder="Deskripsi produk"></textarea></div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Foto Produk</label>
+        <input type="file" id="pImageFile" accept="image/*" onchange="handleImageUpload(event, 'pImagePreview', 'pImageUrl')">
+        <input type="hidden" id="pImageUrl" value="">
+        <img id="pImagePreview" class="mt-2 rounded-lg max-h-32 object-cover" style="display:none">
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Harga *</label><input id="pPrice" type="number" placeholder="50000"></div>
         <div><label class="block text-sm font-medium mb-1">Harga Diskon</label><input id="pDiscount" type="number" placeholder="0"></div>
@@ -466,7 +498,7 @@ function showAddProduct() {
 }
 
 async function saveProduct() {
-  const data = { sku: document.getElementById("pSku").value, name: document.getElementById("pName").value, description: document.getElementById("pDesc").value, price: parseFloat(document.getElementById("pPrice").value) || 0, discount_price: parseFloat(document.getElementById("pDiscount").value) || 0, stock: parseInt(document.getElementById("pStock").value) || 0, category: document.getElementById("pCategory").value || "Umum", image_url: "" };
+  const data = { sku: document.getElementById("pSku").value, name: document.getElementById("pName").value, description: document.getElementById("pDesc").value, price: parseFloat(document.getElementById("pPrice").value) || 0, discount_price: parseFloat(document.getElementById("pDiscount").value) || 0, stock: parseInt(document.getElementById("pStock").value) || 0, category: document.getElementById("pCategory").value || "Umum", image_url: document.getElementById("pImageUrl").value || "" };
   if (!data.name || !data.price) return toast("Nama dan harga wajib diisi", "error");
   try { await api("/api/products", { method: "POST", body: data }); closeModal(); toast("Produk berhasil ditambahkan"); showPage("products"); } catch(e) { toast(e.message, "error"); }
 }
@@ -479,6 +511,12 @@ async function editProduct(id) {
       <div><label class="block text-sm font-medium mb-1">SKU</label><input id="pSku" value="${p.sku||""}"></div>
       <div><label class="block text-sm font-medium mb-1">Nama *</label><input id="pName" value="${p.name}"></div>
       <div><label class="block text-sm font-medium mb-1">Deskripsi</label><textarea id="pDesc" rows="2">${p.description||""}</textarea></div>
+      <div>
+        <label class="block text-sm font-medium mb-1">Foto Produk</label>
+        <input type="file" id="pImageFile" accept="image/*" onchange="handleImageUpload(event, 'pImagePreview', 'pImageUrl')">
+        <input type="hidden" id="pImageUrl" value="${p.image_url||""}">
+        <img id="pImagePreview" class="mt-2 rounded-lg max-h-32 object-cover" style="${p.image_url ? "" : "display:none"}" src="${p.image_url||""}">
+      </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Harga *</label><input id="pPrice" type="number" value="${p.price}"></div>
         <div><label class="block text-sm font-medium mb-1">Harga Diskon</label><input id="pDiscount" type="number" value="${p.discount_price||0}"></div>
@@ -495,7 +533,7 @@ async function editProduct(id) {
 }
 
 async function updateProd(id) {
-  const data = { sku: document.getElementById("pSku").value, name: document.getElementById("pName").value, description: document.getElementById("pDesc").value, price: parseFloat(document.getElementById("pPrice").value), discount_price: parseFloat(document.getElementById("pDiscount").value) || 0, stock: parseInt(document.getElementById("pStock").value) || 0, category: document.getElementById("pCategory").value || "Umum" };
+  const data = { sku: document.getElementById("pSku").value, name: document.getElementById("pName").value, description: document.getElementById("pDesc").value, price: parseFloat(document.getElementById("pPrice").value), discount_price: parseFloat(document.getElementById("pDiscount").value) || 0, stock: parseInt(document.getElementById("pStock").value) || 0, category: document.getElementById("pCategory").value || "Umum", image_url: document.getElementById("pImageUrl").value || "" };
   await api(`/api/products/${id}`, { method: "PUT", body: data }); closeModal(); toast("Produk diperbarui"); showPage("products");
 }
 
@@ -1015,6 +1053,13 @@ async function renderSettings(el) {
           <h3 class="text-lg font-bold mb-4"><i class="fas fa-comment mr-2 text-purple-500"></i>Pesan Otomatis</h3>
           <div class="space-y-3">
             <div><label class="block text-sm font-medium mb-1">Welcome Message</label><textarea id="sWelcome" rows="3">${p.welcome_message||""}</textarea><p class="text-xs text-gray-400 mt-1">Variable: {nama}, {greeting}, {bisnis}</p></div>
+            <div>
+              <label class="block text-sm font-medium mb-1">Foto Sambutan (opsional)</label>
+              <input type="file" id="sWelcomeImageFile" accept="image/*" onchange="handleImageUpload(event, 'sWelcomeImagePreview', 'sWelcomeImageUrl')">
+              <input type="hidden" id="sWelcomeImageUrl" value="${p.welcome_image_url||""}">
+              <img id="sWelcomeImagePreview" class="mt-2 rounded-lg max-h-32 object-cover" style="${p.welcome_image_url ? "" : "display:none"}" src="${p.welcome_image_url||""}">
+              <p class="text-xs text-gray-400 mt-1">Kalau diisi, foto ini dikirim bareng pesan sambutan pertama ke customer baru</p>
+            </div>
             <div><label class="block text-sm font-medium mb-1">Away Message</label><textarea id="sAway" rows="3">${p.away_message||""}</textarea></div>
             <div class="flex gap-4">
               <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="sAutoReply" ${p.auto_reply_enabled?"checked":""}> Auto Reply</label>
@@ -1081,7 +1126,7 @@ async function saveHours() {
 }
 
 async function saveMessages() {
-  await api("/api/profile", { method: "PUT", body: { welcome_message: document.getElementById("sWelcome").value, away_message: document.getElementById("sAway").value, auto_reply_enabled: document.getElementById("sAutoReply").checked ? 1 : 0, ai_enabled: document.getElementById("sAI").checked ? 1 : 0 } });
+  await api("/api/profile", { method: "PUT", body: { welcome_message: document.getElementById("sWelcome").value, welcome_image_url: document.getElementById("sWelcomeImageUrl").value || "", away_message: document.getElementById("sAway").value, auto_reply_enabled: document.getElementById("sAutoReply").checked ? 1 : 0, ai_enabled: document.getElementById("sAI").checked ? 1 : 0 } });
   toast("Pesan otomatis disimpan");
 }
 

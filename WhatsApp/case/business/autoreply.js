@@ -66,7 +66,15 @@ export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pu
   text += `🎫 *Buat Tiket Support* — kalau ada keluhan, bilang aja "mau buat tiket"\n\n`;
   text += `_Langsung chat aja ya, gak perlu pakai format khusus!_ 😊`;
 
-  await lenwy.sendMessage(replyJid, { text }, { quoted: len });
+  if (profile.welcome_image_url) {
+    try {
+      await lenwy.sendMessage(replyJid, { image: { url: profile.welcome_image_url }, caption: text }, { quoted: len });
+    } catch (_) {
+      await lenwy.sendMessage(replyJid, { text }, { quoted: len });
+    }
+  } else {
+    await lenwy.sendMessage(replyJid, { text }, { quoted: len });
+  }
   logMessage(customer.id, "out", text, "text", ownerId, botId);
   updateDailyAnalytics({ messages_out: 1 }, ownerId);
   return true;

@@ -26,6 +26,7 @@ import { hasActiveTicketFlow, startTicketFlow, continueTicketFlow } from "./case
 import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
 import { replySend } from "./case/business/rate-limiter.js";
 import { evaluateRules } from "./case/business/automation-engine.js";
+import { matchProducts, productCaption, MAX_SHOWCASE } from "./case/business/product-browser.js";
 import {
   getProfile, getLowStockProducts, searchFaq, getAllFaq,
   getOrCreateCustomer, getCustomerOrders, getAllProducts, getAllPaymentMethods,
@@ -465,6 +466,29 @@ export default async (lenwy, m, meta) => {
           }
         };
 
+        // Helper: kirim deskripsi singkat lalu foto-foto produk satu per satu (dibatasi MAX_SHOWCASE)
+        const sendProductShowcase = async (introText, products) => {
+          if (introText) await lenwyreply(introText);
+          const shown = products.slice(0, MAX_SHOWCASE);
+          for (let i = 0; i < shown.length; i++) {
+            const p = shown[i];
+            const caption = productCaption(p);
+            if (p.image_url) {
+              try {
+                await replySend(lenwy, replyJid, { image: { url: p.image_url }, caption }, { quoted: len }, botId || "default");
+              } catch (_) {
+                await lenwyreply(caption);
+              }
+            } else {
+              await lenwyreply(caption);
+            }
+            if (i < shown.length - 1) await new Promise((r) => setTimeout(r, 700));
+          }
+          if (products.length > MAX_SHOWCASE) {
+            await lenwyreply(`_...dan ${products.length - MAX_SHOWCASE} produk lainnya. Sebutkan nama produknya langsung ya biar aku kirim fotonya_ 😊`);
+          }
+        };
+
         // Helper: AI answer with mid-flow hint, used when flow returns fallthrough
         const aiWithHint = async (hint) => {
           if (aiInFlight.has(normalizedSender)) return;
@@ -790,19 +814,52 @@ export default async (lenwy, m, meta) => {
           const products = getAllProducts(null, ownerId) || [];
           if (products.length === 0) {
             await lenwyreply("Belum ada produk yang tersedia saat ini 🙏");
-          } else {
-            let text = "Produk yang tersedia:\n\n";
-            products.slice(0, 15).forEach((p, i) => {
-              text += `${i + 1}. *${p.name}* — ${formatCurrency(p.discount_price > 0 ? p.discount_price : p.price)}`;
-              if (p.discount_price > 0) text += ` ~~${formatCurrency(p.price)}~~`;
-              if (p.stock <= 0) text += " _(habis)_";
-              text += "\n";
-            });
-            if (products.length > 15) text += `\n_...dan ${products.length - 15} produk lainnya_`;
-            text += "\n\n_Mau pesan? Langsung bilang aja, misal \"mau pesan [nama produk]\"_ 😊";
-            await lenwyreply(text);
+            return;
           }
+
+          // Kalau pesan menyebut kata kunci spesifik (misal "ada baju apa aja"), tampilkan foto produk yang cocok saja.
+          const { exact, broad, queryTokens } = matchProducts(body, ownerId);
+          const matched = exact.length > 0 ? exact : broad;
+          if (queryTokens.length > 0 && matched.length > 0) {
+            const intro = exact.length > 0
+              ? `Berikut produk yang sesuai dengan "${queryTokens.join(" ")}" ya, ada ${matched.length} pilihan:`
+              : `Hmm, gak ada yang cocok persis sama "${queryTokens.join(" ")}", tapi ini beberapa pilihan lainnya:`;
+            await sendProductShowcase(intro, matched);
+            return;
+          }
+
+          let text = "Produk yang tersedia:\n\n";
+          products.slice(0, 15).forEach((p, i) => {
+            text += `${i + 1}. *${p.name}* — ${formatCurrency(p.discount_price > 0 ? p.discount_price : p.price)}`;
+            if (p.discount_price > 0) text += ` ~~${formatCurrency(p.price)}~~`;
+            if (p.stock <= 0) text += " _(habis)_";
+            text += "\n";
+          });
+          if (products.length > 15) text += `\n_...dan ${products.length - 15} produk lainnya_`;
+          text += "\n\n_Mau pesan? Langsung bilang aja, misal \"mau pesan [nama produk]\"_ 😊";
+          await lenwyreply(text);
           return;
+        }
+
+        // 9.5. Lihat produk spesifik (misal "lihat sweater warna biru dong")
+        if (intent === "lihat_produk") {
+          const { exact, broad, queryTokens } = matchProducts(body, ownerId);
+          if (exact.length > 0) {
+            await sendProductShowcase(
+              exact.length === 1 ? "Nih, ini produknya:" : `Ini ${exact.length} produk yang kamu cari:`,
+              exact,
+            );
+            return;
+          }
+          if (broad.length > 0) {
+            const keyword = queryTokens.join(" ");
+            await sendProductShowcase(
+              `Maaf, gak ada yang cocok persis${keyword ? ` untuk "${keyword}"` : ""} nih, tapi ada beberapa pilihan lain yang mungkin kamu suka:`,
+              broad,
+            );
+            return;
+          }
+          // Tidak ditemukan sama sekali -> lanjut ke AI assistant di bawah (jangan return)
         }
 
         // 10. Menu

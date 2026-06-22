@@ -115,10 +115,15 @@ const INTENT_PATTERNS = [
     /\blist\s*(produk|barang)\b/i,
   ] },
   { intent: "pesan", patterns: [
-    /\b(mau|ingin|pengen|mw|mo|pen)\b.*\b(pesan|order|beli|ambil|checkout)\b/i,
-    /\b(cara|gimana|bagaimana)\b.*\b(pesan|order|beli)\b/i,
-    /\b(order|beli|pesan)\b.*\b(dong|ya|yuk|gan|kak|min)\b/i,
-    /^(pesan|order|beli)$/i,
+    /\b(mau|ingin|pengen|mw|mo|pen)\b.*\b(pesan|pesen|order|beli|ambil|checkout)\b/i,
+    /\b(cara|gimana|bagaimana)\b.*\b(pesan|pesen|order|beli)\b/i,
+    /\b(order|beli|pesan|pesen)\b.*\b(dong|ya|yuk|gan|kak|min)\b/i,
+    /^(pesan|pesen|order|beli)$/i,
+  ] },
+  { intent: "lihat_produk", patterns: [
+    /\b(lihat|liat|tunjuk|tunjukin|tunjukkin|liatin|kasih\s*liat|show|preview)\b/i,
+    /\b(ada|punya)\b.*\b(warna|ukuran|size|model|varian|motif)\b/i,
+    /\b(warna|ukuran|size|model|varian|motif)\b.*\b(apa|aja|nya)\b/i,
   ] },
   { intent: "faq", patterns: [
     /\b(pertanyaan|tanya|faq)\b.*\b(umum|sering)\b/i,
