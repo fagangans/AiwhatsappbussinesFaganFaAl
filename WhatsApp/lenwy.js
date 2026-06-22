@@ -20,11 +20,12 @@ import "./database/Menu/LenwyMenu.js";
 
 // [ ===== Business Module ===== ]
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
-import { askBusinessAssistant, detectIntent, getAgentContact } from "./case/business/ai-assistant.js";
+import { askBusinessAssistant, detectIntent, getAgentContact, getHistory } from "./case/business/ai-assistant.js";
 import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow, pauseOrderFlow, getOrderFlowState } from "./case/business/order-flow.js";
 import { hasActiveTicketFlow, startTicketFlow, continueTicketFlow } from "./case/business/ticket-flow.js";
 import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
 import { replySend } from "./case/business/rate-limiter.js";
+import { evaluateRules } from "./case/business/automation-engine.js";
 import {
   getProfile, getLowStockProducts, searchFaq, getAllFaq,
   getOrCreateCustomer, getCustomerOrders, getAllProducts, getAllPaymentMethods,
@@ -32,7 +33,9 @@ import {
   generateReferralCode, applyReferral, markReferralRewarded, getReferralStats,
   addSatisfactionRating, updateLeadScore, logSentiment, logMessage,
   getTicket, getOrder, getAllBundles, getBundleWithItems, getCustomerAddresses,
-  addImportantMessage,
+  addImportantMessage, createHandoff,
+  getActiveAutomationRules, incrementRuleExecution, logRuleExecution,
+  upsertChatAssignment,
 } from "./database/business/db.js";
 import { formatCurrency, formatOrderStatus } from "./database/business/helpers.js";
 
@@ -280,6 +283,10 @@ export default async (lenwy, m, meta) => {
   // Business Auto-Reply & Customer Tracking
   const isBlocked = handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body, botId || "", dashboardApp, ownerId);
   if (isBlocked) return;
+
+  try {
+    upsertChatAssignment({ ownerId, botId: botId || "", customerJid: normalizedSender, customerName: pushname, lastMessage: body || (mediaType ? `[${mediaType}]` : "") });
+  } catch (_) {}
 
   const pplu = fs.readFileSync(globalThis.MenuImage);
   const len = {
@@ -542,6 +549,9 @@ export default async (lenwy, m, meta) => {
           }
         }
 
+        // 2.7. Automation rules (fire-and-forget, non-blocking)
+        evaluateRules(lenwy, { customerJid: normalizedSender, customerName: pushname, body, ownerId, botId: botId || "default" }).catch(() => {});
+
         // 3. Intent detection
         const intent = detectIntent(body);
         const hasOrder = hasActiveOrderFlow(normalizedSender);
@@ -737,7 +747,38 @@ export default async (lenwy, m, meta) => {
         if (intent === "minta_cs") {
           const agent = getAgentContact(ownerId);
           if (agent) {
-            await lenwyreply(`Tentu! Kamu bisa langsung chat *${agent.name}* di wa.me/${agent.phone} ya, nanti dibantu lebih lanjut 😊`);
+            const history = getHistory(normalizedSender);
+            let chatSummary = "";
+            if (history.length > 0) {
+              chatSummary = history.map(h => `${h.role === "customer" ? "Customer" : "AI"}: ${h.text}`).join("\n");
+            }
+
+            const cust = getOrCreateCustomer(normalizedSender, pushname, ownerId, botId || "");
+
+            const agentJid = agent.phone.includes("@") ? agent.phone : agent.phone + "@s.whatsapp.net";
+
+            try {
+              createHandoff({
+                ownerId,
+                botId: botId || "",
+                customerId: cust.id,
+                customerJid: normalizedSender,
+                customerName: pushname,
+                agentJid,
+                agentName: agent.name,
+                reason: body,
+                chatSummary,
+              });
+            } catch (e) {}
+
+            if (chatSummary) {
+              try {
+                const summaryMsg = `📋 *Handoff dari Bot*\n━━━━━━━━━━━━━━━━━━━━━\n\n👤 *Customer:* ${pushname}\n📱 *Nomor:* wa.me/${normalizedSender.split("@")[0]}\n\n💬 *Riwayat Chat:*\n${chatSummary}\n\n_Customer akan menghubungi Anda sebentar lagi._`;
+                await lenwy.sendMessage(agentJid, { text: summaryMsg });
+              } catch (e) {}
+            }
+
+            await lenwyreply(`Tentu! Kamu bisa langsung chat *${agent.name}* di wa.me/${agent.phone} ya 😊\n\n_Riwayat chat kamu sudah kami kirimkan ke CS, jadi tidak perlu mengulang penjelasan lagi._`);
           } else {
             await lenwyreply("Maaf, belum ada agent CS yang terdaftar saat ini. Coba tanya di sini dulu ya, saya bantu sebisanya 🙏");
           }

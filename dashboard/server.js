@@ -22,6 +22,8 @@ import db, {
   getAllTemplates, addTemplate, deleteTemplate,
   getAllAgents, addAgent, updateAgentStatus,
   getAllBroadcasts, createBroadcast, updateBroadcastStatus,
+  addBroadcastMessage, updateBroadcastMessageStatus, refreshBroadcastCounts, getBroadcastMessages, getBroadcastIdByMessageId,
+  getBroadcast,
   confirmPayment,
   getDashboardStats, getAnalytics,
   getDashboardUser, getDashboardUserById, createDashboardUser, dashboardUserExists, updateDashboardPassword,
@@ -40,6 +42,9 @@ import db, {
   createBundle, addBundleItem, getBundleWithItems, getAllBundles, deleteBundle, deleteBundleItem,
   updateLeadScore, getCustomersByLeadTier,
   getCustomerTimeline, getCustomersBySegment,
+  createHandoff, getAllHandoffs, updateHandoffStatus, getHandoffStats,
+  createAutomationRule, getAllAutomationRules, getActiveAutomationRules, updateAutomationRule, deleteAutomationRule, getAutomationLog,
+  upsertChatAssignment, assignChat, unassignChat, resolveChat, getAllChatAssignments, getInboxStats,
 } from "../WhatsApp/database/business/db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -748,9 +753,26 @@ export default function startDashboard() {
         customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
       }
       const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }), {}, req.body.botId);
-      updateBroadcastStatus(bc.id, "sent", result.sent);
+      for (const key of result.sentKeys || []) {
+        addBroadcastMessage(bc.id, key.jid, key.messageId);
+      }
+      updateBroadcastStatus(bc.id, "sent", result.sent, result.failed);
     }
     res.json({ success: true, broadcast: bc });
+  });
+
+  app.get("/api/broadcasts/:id/stats", auth, (req, res) => {
+    const bc = getBroadcast(parseInt(req.params.id));
+    if (!bc) return res.status(404).json({ error: "Broadcast tidak ditemukan" });
+    res.json({
+      ...bc,
+      open_rate: bc.sent_count > 0 ? ((bc.read_count / bc.sent_count) * 100).toFixed(1) : "0.0",
+      delivery_rate: bc.sent_count > 0 ? ((bc.delivered_count / bc.sent_count) * 100).toFixed(1) : "0.0",
+    });
+  });
+
+  app.get("/api/broadcasts/:id/messages", auth, (req, res) => {
+    res.json(getBroadcastMessages(parseInt(req.params.id)));
   });
 
   // ===== SEND MESSAGE =====
@@ -956,7 +978,10 @@ export default function startDashboard() {
           customers = getAllCustomers(1000, 0, ownerId).filter(c => !c.is_blocked);
         }
         const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${req.body.title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${req.body.message}` }), {}, req.body.botId);
-        updateBroadcastStatus(bc.id, "sent", result.sent);
+        for (const key of result.sentKeys || []) {
+          addBroadcastMessage(bc.id, key.jid, key.messageId);
+        }
+        updateBroadcastStatus(bc.id, "sent", result.sent, result.failed);
       }, delay);
     }
     res.json({ success: true, broadcast: bc, scheduled_at: scheduledAt });
@@ -1088,7 +1113,10 @@ export default function startDashboard() {
     if (waSocket) {
       (async () => {
         const result = await bulkSend(waSocket, customers, (c) => ({ text: `📢 *${title}*\n━━━━━━━━━━━━━━━━━━━━━\n\n${message}` }), {}, botId);
-        updateBroadcastStatus(bc.id, "sent", result.sent);
+        for (const key of result.sentKeys || []) {
+          addBroadcastMessage(bc.id, key.jid, key.messageId);
+        }
+        updateBroadcastStatus(bc.id, "sent", result.sent, result.failed);
       })();
     }
     res.json({ success: true, broadcast: bc, recipients: customers.length });
@@ -1120,6 +1148,97 @@ export default function startDashboard() {
   // ===== RATE LIMIT STATUS =====
   app.get("/api/rate-limit-status", auth, (req, res) => {
     res.json(getRateLimitStatus(req.query.botId || "default"));
+  });
+
+  // ===== HANDOFFS =====
+  app.get("/api/handoffs", auth, (req, res) => {
+    const { ownerId } = getViewContext(req);
+    const status = req.query.status || null;
+    res.json(getAllHandoffs(ownerId, status));
+  });
+
+  app.get("/api/handoffs/stats", auth, (req, res) => {
+    res.json(getHandoffStats(getViewContext(req).ownerId));
+  });
+
+  app.put("/api/handoffs/:id/status", auth, (req, res) => {
+    updateHandoffStatus(parseInt(req.params.id), req.body.status);
+    res.json({ success: true });
+  });
+
+  // ===== AUTOMATION RULES =====
+  app.get("/api/automation/rules", auth, (req, res) => {
+    res.json(getAllAutomationRules(getViewContext(req).ownerId));
+  });
+
+  app.post("/api/automation/rules", auth, (req, res) => {
+    try {
+      req.body.owner_id = getWriteOwnerId(req);
+      const rule = createAutomationRule(req.body);
+      res.json({ success: true, rule });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/automation/rules/:id", auth, (req, res) => {
+    try {
+      updateAutomationRule(parseInt(req.params.id), req.body);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/automation/rules/:id", auth, (req, res) => {
+    deleteAutomationRule(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.get("/api/automation/log", auth, (req, res) => {
+    res.json(getAutomationLog(getViewContext(req).ownerId));
+  });
+
+  // ===== SHARED INBOX =====
+  app.get("/api/inbox", auth, (req, res) => {
+    const { ownerId } = getViewContext(req);
+    const status = req.query.status || null;
+    const agentJid = req.query.agent || null;
+    res.json(getAllChatAssignments(ownerId, status, agentJid));
+  });
+
+  app.get("/api/inbox/stats", auth, (req, res) => {
+    res.json(getInboxStats(getViewContext(req).ownerId));
+  });
+
+  app.put("/api/inbox/:id/assign", auth, (req, res) => {
+    const { agent_jid, agent_name } = req.body;
+    if (!agent_jid) return res.status(400).json({ error: "agent_jid diperlukan" });
+    const result = assignChat(parseInt(req.params.id), agent_jid, agent_name || "");
+    res.json({ success: true, assignment: result });
+  });
+
+  app.put("/api/inbox/:id/unassign", auth, (req, res) => {
+    unassignChat(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.put("/api/inbox/:id/resolve", auth, (req, res) => {
+    resolveChat(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  app.post("/api/inbox/:id/reply", auth, async (req, res) => {
+    const assignment = db.prepare("SELECT * FROM chat_assignments WHERE id = ?").get(parseInt(req.params.id));
+    if (!assignment) return res.status(404).json({ error: "Chat tidak ditemukan" });
+    const waSocket = getSocket(req.body.botId || assignment.bot_id);
+    if (!waSocket) return res.status(503).json({ error: "WhatsApp tidak terhubung" });
+    try {
+      await waSocket.sendMessage(assignment.customer_jid, { text: req.body.message });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ===== SPA FALLBACK =====

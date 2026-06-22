@@ -532,6 +532,72 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS broadcast_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    broadcast_id INTEGER NOT NULL,
+    customer_jid TEXT NOT NULL,
+    wa_message_id TEXT DEFAULT '',
+    status TEXT DEFAULT 'sent',
+    sent_at TEXT DEFAULT (datetime('now')),
+    delivered_at TEXT,
+    read_at TEXT,
+    FOREIGN KEY (broadcast_id) REFERENCES broadcasts(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_broadcast_msgs_bc ON broadcast_messages(broadcast_id);
+  CREATE INDEX IF NOT EXISTS idx_broadcast_msgs_waid ON broadcast_messages(wa_message_id);
+
+  CREATE TABLE IF NOT EXISTS automation_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    name TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    trigger_config TEXT DEFAULT '{}',
+    action_type TEXT NOT NULL,
+    action_config TEXT DEFAULT '{}',
+    is_active INTEGER DEFAULT 1,
+    execution_count INTEGER DEFAULT 0,
+    last_executed_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS automation_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule_id INTEGER NOT NULL,
+    customer_jid TEXT DEFAULT '',
+    result TEXT DEFAULT 'success',
+    executed_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (rule_id) REFERENCES automation_rules(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_automation_rules_owner ON automation_rules(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_automation_rules_active ON automation_rules(is_active);
+  CREATE INDEX IF NOT EXISTS idx_automation_log_rule ON automation_log(rule_id);
+
+  CREATE TABLE IF NOT EXISTS chat_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    bot_id TEXT DEFAULT '',
+    customer_jid TEXT NOT NULL,
+    customer_name TEXT DEFAULT '',
+    agent_jid TEXT DEFAULT '',
+    agent_name TEXT DEFAULT '',
+    status TEXT DEFAULT 'unassigned',
+    last_message TEXT DEFAULT '',
+    last_message_at TEXT DEFAULT (datetime('now')),
+    assigned_at TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (owner_id) REFERENCES dashboard_users(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_chat_assignments_owner ON chat_assignments(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_chat_assignments_agent ON chat_assignments(agent_jid);
+  CREATE INDEX IF NOT EXISTS idx_chat_assignments_status ON chat_assignments(status);
+  CREATE INDEX IF NOT EXISTS idx_chat_assignments_customer ON chat_assignments(customer_jid);
+`);
+
 addColSafe("customers", "loyalty_points", "INTEGER DEFAULT 0");
 addColSafe("customers", "referral_code", "TEXT DEFAULT ''");
 addColSafe("customers", "birthday", "TEXT DEFAULT ''");
@@ -585,6 +651,33 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_customers_lead ON customers(lead_tier);
   CREATE INDEX IF NOT EXISTS idx_messages_sentiment ON messages_log(sentiment);
 `);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS handoffs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 1,
+    bot_id TEXT DEFAULT '',
+    customer_id INTEGER,
+    customer_jid TEXT NOT NULL,
+    customer_name TEXT DEFAULT '',
+    agent_jid TEXT NOT NULL,
+    agent_name TEXT DEFAULT '',
+    reason TEXT DEFAULT '',
+    chat_summary TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now')),
+    resolved_at TEXT,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_handoffs_owner ON handoffs(owner_id);
+  CREATE INDEX IF NOT EXISTS idx_handoffs_status ON handoffs(status);
+  CREATE INDEX IF NOT EXISTS idx_handoffs_customer ON handoffs(customer_jid);
+`);
+
+addColSafe("broadcasts", "delivered_count", "INTEGER DEFAULT 0");
+addColSafe("broadcasts", "read_count", "INTEGER DEFAULT 0");
+addColSafe("broadcasts", "failed_count", "INTEGER DEFAULT 0");
 
 const adminProfile = db.prepare("SELECT COUNT(*) as c FROM business_profile WHERE owner_id = 1").get();
 if (adminProfile.c === 0) {
@@ -963,8 +1056,40 @@ export function getAllBroadcasts(ownerId = null) {
   return db.prepare("SELECT * FROM broadcasts ORDER BY created_at DESC").all();
 }
 
-export function updateBroadcastStatus(id, status, sentCount = 0) {
-  return db.prepare("UPDATE broadcasts SET status = ?, sent_count = ?, sent_at = datetime('now') WHERE id = ?").run(status, sentCount, id);
+export function updateBroadcastStatus(id, status, sentCount = 0, failedCount = 0) {
+  return db.prepare("UPDATE broadcasts SET status = ?, sent_count = ?, failed_count = ?, sent_at = datetime('now') WHERE id = ?").run(status, sentCount, failedCount, id);
+}
+
+export function addBroadcastMessage(broadcastId, customerJid, waMessageId) {
+  db.prepare("INSERT INTO broadcast_messages (broadcast_id, customer_jid, wa_message_id) VALUES (?, ?, ?)").run(broadcastId, customerJid, waMessageId || "");
+}
+
+export function updateBroadcastMessageStatus(waMessageId, status) {
+  const now = "datetime('now')";
+  if (status === "delivered") {
+    db.prepare(`UPDATE broadcast_messages SET status = 'delivered', delivered_at = ${now} WHERE wa_message_id = ? AND status != 'read'`).run(waMessageId);
+  } else if (status === "read") {
+    db.prepare(`UPDATE broadcast_messages SET status = 'read', read_at = ${now}, delivered_at = COALESCE(delivered_at, ${now}) WHERE wa_message_id = ?`).run(waMessageId);
+  }
+}
+
+export function refreshBroadcastCounts(broadcastId) {
+  const stats = db.prepare(`SELECT
+    SUM(CASE WHEN status IN ('delivered','read') THEN 1 ELSE 0 END) as delivered,
+    SUM(CASE WHEN status = 'read' THEN 1 ELSE 0 END) as read_count,
+    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
+  FROM broadcast_messages WHERE broadcast_id = ?`).get(broadcastId);
+  db.prepare("UPDATE broadcasts SET delivered_count = ?, read_count = ?, failed_count = ? WHERE id = ?")
+    .run(stats?.delivered || 0, stats?.read_count || 0, stats?.failed || 0, broadcastId);
+}
+
+export function getBroadcastMessages(broadcastId) {
+  return db.prepare("SELECT * FROM broadcast_messages WHERE broadcast_id = ? ORDER BY sent_at DESC").all(broadcastId);
+}
+
+export function getBroadcastIdByMessageId(waMessageId) {
+  const row = db.prepare("SELECT broadcast_id FROM broadcast_messages WHERE wa_message_id = ?").get(waMessageId);
+  return row ? row.broadcast_id : null;
 }
 
 // === PAYMENTS ===
@@ -1488,4 +1613,160 @@ export function updatePaymentMethod(id, data) {
   const sets = fields.map(f => `${f} = @${f}`).join(", ");
   data.id = id;
   db.prepare(`UPDATE payment_methods SET ${sets} WHERE id = @id`).run(data);
+}
+
+// === AUTOMATION RULES ===
+export function createAutomationRule(data) {
+  db.prepare(`INSERT INTO automation_rules (owner_id, name, trigger_type, trigger_config, action_type, action_config, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+    data.owner_id || 1, data.name, data.trigger_type,
+    JSON.stringify(data.trigger_config || {}),
+    data.action_type,
+    JSON.stringify(data.action_config || {}),
+    data.is_active !== undefined ? (data.is_active ? 1 : 0) : 1
+  );
+  return db.prepare("SELECT * FROM automation_rules WHERE owner_id = ? ORDER BY id DESC LIMIT 1").get(data.owner_id || 1);
+}
+
+export function getAllAutomationRules(ownerId = null) {
+  if (ownerId) return db.prepare("SELECT * FROM automation_rules WHERE owner_id = ? ORDER BY created_at DESC").all(ownerId);
+  return db.prepare("SELECT * FROM automation_rules ORDER BY created_at DESC").all();
+}
+
+export function getActiveAutomationRules(ownerId = null) {
+  if (ownerId) return db.prepare("SELECT * FROM automation_rules WHERE owner_id = ? AND is_active = 1 ORDER BY id").all(ownerId);
+  return db.prepare("SELECT * FROM automation_rules WHERE is_active = 1 ORDER BY id").all();
+}
+
+export function updateAutomationRule(id, data) {
+  const fields = Object.keys(data).filter(k => k !== "id" && k !== "owner_id");
+  const updates = [];
+  const values = [];
+  for (const f of fields) {
+    if (f === "trigger_config" || f === "action_config") {
+      updates.push(`${f} = ?`);
+      values.push(JSON.stringify(data[f]));
+    } else if (f === "is_active") {
+      updates.push(`${f} = ?`);
+      values.push(data[f] ? 1 : 0);
+    } else {
+      updates.push(`${f} = ?`);
+      values.push(data[f]);
+    }
+  }
+  if (updates.length === 0) return;
+  updates.push("updated_at = datetime('now')");
+  values.push(id);
+  db.prepare(`UPDATE automation_rules SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+}
+
+export function deleteAutomationRule(id) {
+  db.prepare("DELETE FROM automation_rules WHERE id = ?").run(id);
+}
+
+export function incrementRuleExecution(id) {
+  db.prepare("UPDATE automation_rules SET execution_count = execution_count + 1, last_executed_at = datetime('now') WHERE id = ?").run(id);
+}
+
+export function logRuleExecution(ruleId, customerJid, result) {
+  db.prepare("INSERT INTO automation_log (rule_id, customer_jid, result) VALUES (?, ?, ?)").run(ruleId, customerJid || "", result || "success");
+}
+
+export function getAutomationLog(ownerId = null, limit = 100) {
+  let sql = `SELECT al.*, ar.name as rule_name FROM automation_log al
+    JOIN automation_rules ar ON al.rule_id = ar.id WHERE 1=1`;
+  const p = [];
+  if (ownerId) { sql += " AND ar.owner_id = ?"; p.push(ownerId); }
+  sql += " ORDER BY al.executed_at DESC LIMIT ?";
+  p.push(limit);
+  return db.prepare(sql).all(...p);
+}
+
+// === HANDOFFS ===
+export function createHandoff(data) {
+  db.prepare(`INSERT INTO handoffs (owner_id, bot_id, customer_id, customer_jid, customer_name, agent_jid, agent_name, reason, chat_summary)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    data.ownerId || 1, data.botId || "", data.customerId || null,
+    data.customerJid, data.customerName || "", data.agentJid,
+    data.agentName || "", data.reason || "", data.chatSummary || ""
+  );
+  return db.prepare("SELECT * FROM handoffs ORDER BY id DESC LIMIT 1").get();
+}
+
+export function getAllHandoffs(ownerId = null, status = null, limit = 50) {
+  let sql = "SELECT * FROM handoffs WHERE 1=1";
+  const p = [];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (status) { sql += " AND status = ?"; p.push(status); }
+  sql += " ORDER BY created_at DESC LIMIT ?";
+  p.push(limit);
+  return db.prepare(sql).all(...p);
+}
+
+export function updateHandoffStatus(id, status) {
+  const resolvedAt = status === "resolved" ? "datetime('now')" : "NULL";
+  db.prepare(`UPDATE handoffs SET status = ?, resolved_at = ${resolvedAt} WHERE id = ?`).run(status, id);
+}
+
+export function getHandoffStats(ownerId = null) {
+  const oc = ownerId ? " WHERE owner_id = ?" : "";
+  const p = ownerId ? [ownerId] : [];
+  return db.prepare(`SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+    SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved
+  FROM handoffs${oc}`).get(...p);
+}
+
+// === SHARED INBOX (Chat Assignments) ===
+export function upsertChatAssignment(data) {
+  const existing = db.prepare("SELECT id FROM chat_assignments WHERE customer_jid = ? AND owner_id = ?").get(data.customerJid, data.ownerId || 1);
+  if (existing) {
+    db.prepare("UPDATE chat_assignments SET customer_name = ?, last_message = ?, last_message_at = datetime('now'), bot_id = ? WHERE id = ?")
+      .run(data.customerName || "", (data.lastMessage || "").slice(0, 500), data.botId || "", existing.id);
+    return db.prepare("SELECT * FROM chat_assignments WHERE id = ?").get(existing.id);
+  }
+  db.prepare(`INSERT INTO chat_assignments (owner_id, bot_id, customer_jid, customer_name, last_message)
+    VALUES (?, ?, ?, ?, ?)`).run(data.ownerId || 1, data.botId || "", data.customerJid, data.customerName || "", (data.lastMessage || "").slice(0, 500));
+  return db.prepare("SELECT * FROM chat_assignments WHERE customer_jid = ? AND owner_id = ?").get(data.customerJid, data.ownerId || 1);
+}
+
+export function assignChat(id, agentJid, agentName) {
+  db.prepare("UPDATE chat_assignments SET agent_jid = ?, agent_name = ?, status = 'assigned', assigned_at = datetime('now') WHERE id = ?")
+    .run(agentJid, agentName || "", id);
+  return db.prepare("SELECT * FROM chat_assignments WHERE id = ?").get(id);
+}
+
+export function unassignChat(id) {
+  db.prepare("UPDATE chat_assignments SET agent_jid = '', agent_name = '', status = 'unassigned', assigned_at = NULL WHERE id = ?").run(id);
+}
+
+export function resolveChat(id) {
+  db.prepare("UPDATE chat_assignments SET status = 'resolved' WHERE id = ?").run(id);
+}
+
+export function getAllChatAssignments(ownerId = null, status = null, agentJid = null) {
+  let sql = "SELECT * FROM chat_assignments WHERE 1=1";
+  const p = [];
+  if (ownerId) { sql += " AND owner_id = ?"; p.push(ownerId); }
+  if (status) { sql += " AND status = ?"; p.push(status); }
+  if (agentJid) { sql += " AND agent_jid = ?"; p.push(agentJid); }
+  sql += " ORDER BY last_message_at DESC";
+  return db.prepare(sql).all(...p);
+}
+
+export function getChatAssignment(customerJid, ownerId) {
+  return db.prepare("SELECT * FROM chat_assignments WHERE customer_jid = ? AND owner_id = ?").get(customerJid, ownerId);
+}
+
+export function getInboxStats(ownerId = null) {
+  const oc = ownerId ? " WHERE owner_id = ?" : "";
+  const p = ownerId ? [ownerId] : [];
+  return db.prepare(`SELECT
+    COUNT(*) as total,
+    SUM(CASE WHEN status = 'unassigned' THEN 1 ELSE 0 END) as unassigned,
+    SUM(CASE WHEN status = 'assigned' THEN 1 ELSE 0 END) as assigned,
+    SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved
+  FROM chat_assignments${oc}`).get(...p);
 }

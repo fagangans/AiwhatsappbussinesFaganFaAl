@@ -109,6 +109,7 @@ export async function bulkSend(lenwy, recipients, contentFn, options = {}, botId
   const delayBetween = options.delay || BULK_DELAY_MS;
   const pauseBetweenBatches = options.batchPause || 60000; // 1 min between batches
   let sent = 0, failed = 0, skipped = 0;
+  const sentKeys = [];
 
   for (let i = 0; i < recipients.length; i++) {
     const bulkCount = resetCountersIfNeeded(botId);
@@ -121,7 +122,8 @@ export async function bulkSend(lenwy, recipients, contentFn, options = {}, botId
 
     try {
       const content = typeof contentFn === "function" ? contentFn(recipients[i]) : contentFn;
-      await lenwy.sendMessage(recipients[i].jid, content);
+      const result = await lenwy.sendMessage(recipients[i].jid, content);
+      sentKeys.push({ jid: recipients[i].jid, messageId: result?.key?.id || "" });
       bulkCount.hour++;
       bulkCount.day++;
       recordSuccess(botId);
@@ -146,7 +148,7 @@ export async function bulkSend(lenwy, recipients, contentFn, options = {}, botId
     }
   }
 
-  return { sent, failed, skipped };
+  return { sent, failed, skipped, sentKeys };
 }
 
 // Get current rate limit status (for dashboard API)

@@ -8,7 +8,7 @@ const conversationHistory = new Map();
 const MAX_HISTORY = 10;
 const HISTORY_TTL = 30 * 60 * 1000;
 
-function getHistory(senderId) {
+export function getHistory(senderId) {
   const entry = conversationHistory.get(senderId);
   if (!entry) return [];
   if (Date.now() - entry.lastUpdate > HISTORY_TTL) {

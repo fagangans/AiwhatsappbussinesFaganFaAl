@@ -258,6 +258,7 @@ async function showPage(page) {
     loyalty: "Loyalty & Poin", referral: "Referral", bundles: "Paket Combo",
     botmanager: "Kelola Bot", important: "Pesan Penting", analytics: "Analytics",
     clients: "Kelola Client", settings: "Pengaturan Bisnis",
+    automation: "Automation Rules", inbox: "Shared Inbox", handoffs: "Handoff CS",
   };
   document.getElementById("pageTitle").textContent = titles[page] || page;
   const descriptions = {
@@ -280,6 +281,9 @@ async function showPage(page) {
     analytics: "Grafik dan statistik performa bot secara detail.",
     clients: "Kelola akun client yang menggunakan layanan ini.",
     settings: "Atur profil bisnis, jam operasional, dan fitur bot.",
+    automation: "Buat aturan otomatis: keyword trigger, auto-reply, tag otomatis, notifikasi agent.",
+    inbox: "Shared inbox — lihat semua chat masuk, klaim, dan balas dari dashboard.",
+    handoffs: "Riwayat handoff dari AI ke CS manusia.",
   };
   const descText = descriptions[page] || "";
   document.getElementById("pageDesc").innerHTML = descText ? `<i class="fas fa-circle-info"></i> ${descText}` : "";
@@ -306,6 +310,9 @@ async function showPage(page) {
       case "analytics": await renderAnalytics(content); break;
       case "clients": if (userRole === "admin") { await renderClients(content); } else { content.innerHTML = '<div class="text-red-500">Akses ditolak</div>'; } break;
       case "settings": await renderSettings(content); break;
+      case "automation": await renderAutomation(content); break;
+      case "inbox": await renderInbox(content); break;
+      case "handoffs": await renderHandoffs(content); break;
     }
   } catch (e) { content.innerHTML = `<div class="text-red-500">Error: ${e.message}</div>`; }
 }
@@ -746,11 +753,14 @@ async function renderBroadcast(el) {
     <div class="flex justify-end mb-4"><button onclick="showNewBroadcast()" class="btn btn-primary write-action"><i class="fas fa-bullhorn mr-1"></i>Buat Broadcast</button></div>
     <div class="card overflow-x-auto">
       <table>
-        <thead><tr><th>Judul</th><th>Target</th><th>Terkirim</th><th>Status</th><th>Tanggal</th></tr></thead>
-        <tbody>${broadcasts.map(b => { const tags = JSON.parse(b.target_tags||"[]"); return `<tr>
+        <thead><tr><th>Judul</th><th>Target</th><th>Terkirim</th><th>Delivered</th><th>Dibaca</th><th>Open Rate</th><th>Status</th><th>Tanggal</th></tr></thead>
+        <tbody>${broadcasts.map(b => { const tags = JSON.parse(b.target_tags||"[]"); const openRate = b.sent_count > 0 ? ((b.read_count || 0) / b.sent_count * 100).toFixed(1) : "0.0"; const delivRate = b.sent_count > 0 ? (((b.delivered_count || 0) + (b.read_count || 0)) / b.sent_count * 100).toFixed(1) : "0.0"; return `<tr>
           <td class="font-medium">${b.title}</td>
           <td>${tags.length?tags.join(", "):"Semua"}</td>
           <td>${b.sent_count}</td>
+          <td>${b.delivered_count || 0}</td>
+          <td>${b.read_count || 0}</td>
+          <td><span class="font-medium ${openRate > 30 ? 'text-green-500' : openRate > 10 ? 'text-yellow-500' : 'text-gray-400'}">${openRate}%</span></td>
           <td>${statusBadge(b.status === "sent" ? "delivered" : b.status)}</td>
           <td class="text-xs text-gray-500">${formatDate(b.sent_at || b.created_at)}</td>
         </tr>`; }).join("")}</tbody>
@@ -1886,6 +1896,271 @@ async function viewCustomerDetail(id) {
         return `<div class="flex gap-2 py-1 border-b text-xs"><span class="shrink-0">${icon}</span><span class="flex-1 truncate">${t.detail || '-'}</span><span class="text-gray-400 shrink-0">${formatDate(t.ts)}</span></div>`;
       }).join("") || '<p class="text-center text-gray-400 py-2">Tidak ada aktivitas</p>'}
     </div>
+    <div class="flex justify-end mt-4"><button onclick="closeModal()" class="btn btn-outline">Tutup</button></div>`);
+}
+
+// ===== AUTOMATION RULES =====
+async function renderAutomation(el) {
+  const rules = await api("/api/automation/rules");
+  const log = await api("/api/automation/log");
+  el.innerHTML = `
+    <div class="flex justify-end mb-4"><button onclick="showNewRule()" class="btn btn-primary write-action"><i class="fas fa-magic mr-1"></i>Buat Rule Baru</button></div>
+    <div class="card overflow-x-auto mb-6">
+      <h3 class="font-bold mb-3"><i class="fas fa-list-ol mr-2"></i>Daftar Rules</h3>
+      <table>
+        <thead><tr><th>Nama</th><th>Trigger</th><th>Action</th><th>Status</th><th>Eksekusi</th><th>Terakhir</th><th>Aksi</th></tr></thead>
+        <tbody>${rules.map(r => `<tr>
+          <td class="font-medium">${r.name}</td>
+          <td><span class="badge badge-blue">${r.trigger_type}</span></td>
+          <td><span class="badge badge-green">${r.action_type}</span></td>
+          <td>${r.is_active ? '<span class="badge badge-green">Aktif</span>' : '<span class="badge badge-gray">Nonaktif</span>'}</td>
+          <td>${r.execution_count || 0}x</td>
+          <td class="text-xs text-gray-500">${r.last_executed_at ? formatDate(r.last_executed_at) : "-"}</td>
+          <td class="flex gap-1">
+            <button onclick="toggleRule(${r.id}, ${r.is_active ? 0 : 1})" class="btn btn-sm ${r.is_active ? 'btn-outline' : 'btn-primary'} write-action">${r.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>
+            <button onclick="deleteRule(${r.id})" class="btn btn-sm btn-danger write-action"><i class="fas fa-trash"></i></button>
+          </td>
+        </tr>`).join("")}</tbody>
+      </table>
+      ${rules.length === 0 ? '<p class="text-center py-6 text-gray-400">Belum ada automation rule. Klik tombol di atas untuk membuat.</p>' : ""}
+    </div>
+    <div class="card">
+      <h3 class="font-bold mb-3"><i class="fas fa-history mr-2"></i>Log Eksekusi (100 terakhir)</h3>
+      <table>
+        <thead><tr><th>Rule</th><th>Customer</th><th>Hasil</th><th>Waktu</th></tr></thead>
+        <tbody>${log.slice(0, 50).map(l => `<tr>
+          <td>${l.rule_name || '-'}</td>
+          <td class="text-xs">${l.customer_jid || '-'}</td>
+          <td>${l.result === 'success' ? '<span class="badge badge-green">OK</span>' : '<span class="badge badge-red">' + (l.result || 'error').slice(0, 50) + '</span>'}</td>
+          <td class="text-xs text-gray-500">${formatDate(l.executed_at)}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+      ${log.length === 0 ? '<p class="text-center py-4 text-gray-400">Belum ada eksekusi rule</p>' : ""}
+    </div>`;
+}
+
+function showNewRule() {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-magic mr-2 text-violet-500"></i>Buat Automation Rule</h3>
+    <div class="space-y-3">
+      <div><label class="block text-sm font-medium mb-1">Nama Rule *</label><input id="ruleName" placeholder="Contoh: Auto-reply promo"></div>
+      <div><label class="block text-sm font-medium mb-1">Trigger Type *</label>
+        <select id="ruleTrigger" onchange="onTriggerChange()">
+          <option value="keyword">Keyword (kata kunci di pesan)</option>
+          <option value="regex">Regex (pola teks)</option>
+          <option value="first_message">First Message (customer baru)</option>
+        </select>
+      </div>
+      <div id="triggerConfigWrap">
+        <label class="block text-sm font-medium mb-1">Keywords (pisah koma)</label>
+        <input id="ruleKeywords" placeholder="promo, diskon, sale">
+      </div>
+      <div><label class="block text-sm font-medium mb-1">Action Type *</label>
+        <select id="ruleAction" onchange="onActionChange()">
+          <option value="send_message">Kirim Pesan Otomatis</option>
+          <option value="add_tag">Tambah Tag ke Customer</option>
+          <option value="notify_agent">Notifikasi ke Agent</option>
+        </select>
+      </div>
+      <div id="actionConfigWrap">
+        <label class="block text-sm font-medium mb-1">Pesan (gunakan {name} untuk nama customer)</label>
+        <textarea id="ruleMessage" rows="3" placeholder="Halo {name}! Terima kasih sudah menghubungi kami..."></textarea>
+      </div>
+      <div class="flex gap-2 justify-end"><button onclick="closeModal()" class="btn btn-outline">Batal</button><button onclick="saveRule()" class="btn btn-primary">Simpan</button></div>
+    </div>`);
+}
+
+function onTriggerChange() {
+  const type = document.getElementById("ruleTrigger").value;
+  const wrap = document.getElementById("triggerConfigWrap");
+  if (type === "keyword") wrap.innerHTML = '<label class="block text-sm font-medium mb-1">Keywords (pisah koma)</label><input id="ruleKeywords" placeholder="promo, diskon, sale">';
+  else if (type === "regex") wrap.innerHTML = '<label class="block text-sm font-medium mb-1">Regex Pattern</label><input id="ruleKeywords" placeholder="(promo|diskon).*\\d+">';
+  else wrap.innerHTML = '<p class="text-sm text-gray-500">Tidak ada konfigurasi tambahan. Rule akan jalan saat customer pertama kali mengirim pesan.</p>';
+}
+
+function onActionChange() {
+  const type = document.getElementById("ruleAction").value;
+  const wrap = document.getElementById("actionConfigWrap");
+  if (type === "send_message") wrap.innerHTML = '<label class="block text-sm font-medium mb-1">Pesan (gunakan {name} untuk nama customer)</label><textarea id="ruleMessage" rows="3" placeholder="Halo {name}! Terima kasih sudah menghubungi kami..."></textarea>';
+  else if (type === "add_tag") wrap.innerHTML = '<label class="block text-sm font-medium mb-1">Nama Tag</label><input id="ruleMessage" placeholder="Contoh: promo_interest">';
+  else if (type === "notify_agent") wrap.innerHTML = '<label class="block text-sm font-medium mb-1">Nomor Agent (62xxx)</label><input id="ruleMessage" placeholder="6281234567890">';
+}
+
+async function saveRule() {
+  const name = document.getElementById("ruleName").value;
+  const triggerType = document.getElementById("ruleTrigger").value;
+  const actionType = document.getElementById("ruleAction").value;
+  const msgEl = document.getElementById("ruleMessage");
+  const kwEl = document.getElementById("ruleKeywords");
+  if (!name) return toast("Nama rule wajib diisi", "error");
+  let trigger_config = {};
+  if (triggerType === "keyword" && kwEl) trigger_config = { keywords: kwEl.value };
+  else if (triggerType === "regex" && kwEl) trigger_config = { pattern: kwEl.value };
+  let action_config = {};
+  if (actionType === "send_message" && msgEl) action_config = { message: msgEl.value };
+  else if (actionType === "add_tag" && msgEl) action_config = { tag: msgEl.value };
+  else if (actionType === "notify_agent" && msgEl) action_config = { agent_jid: msgEl.value };
+  try {
+    await api("/api/automation/rules", { method: "POST", body: { name, trigger_type: triggerType, trigger_config, action_type: actionType, action_config } });
+    closeModal(); toast("Rule berhasil dibuat"); showPage("automation");
+  } catch (e) { toast(e.message || "Gagal menyimpan", "error"); }
+}
+
+async function toggleRule(id, active) {
+  await api(`/api/automation/rules/${id}`, { method: "PUT", body: { is_active: active } });
+  toast(active ? "Rule diaktifkan" : "Rule dinonaktifkan"); showPage("automation");
+}
+
+async function deleteRule(id) {
+  if (!confirm("Hapus rule ini?")) return;
+  await api(`/api/automation/rules/${id}`, { method: "DELETE" });
+  toast("Rule dihapus"); showPage("automation");
+}
+
+// ===== SHARED INBOX =====
+async function renderInbox(el) {
+  const stats = await api("/api/inbox/stats");
+  const agents = await api("/api/agents");
+  const statusFilter = "unassigned";
+  const chats = await api(`/api/inbox?status=${statusFilter}`);
+  const assignedChats = await api("/api/inbox?status=assigned");
+  el.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div class="card text-center"><div class="text-2xl font-bold text-blue-500">${stats.total || 0}</div><div class="text-xs text-gray-500">Total Chat</div></div>
+      <div class="card text-center"><div class="text-2xl font-bold text-red-500">${stats.unassigned || 0}</div><div class="text-xs text-gray-500">Belum Diklaim</div></div>
+      <div class="card text-center"><div class="text-2xl font-bold text-yellow-500">${stats.assigned || 0}</div><div class="text-xs text-gray-500">Sedang Ditangani</div></div>
+      <div class="card text-center"><div class="text-2xl font-bold text-green-500">${stats.resolved || 0}</div><div class="text-xs text-gray-500">Selesai</div></div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="card">
+        <h3 class="font-bold mb-3"><i class="fas fa-inbox mr-2 text-red-400"></i>Belum Diklaim (${chats.length})</h3>
+        <div class="space-y-2 max-h-96 overflow-y-auto">
+          ${chats.length === 0 ? '<p class="text-center py-4 text-gray-400">Tidak ada chat yang menunggu</p>' : chats.map(c => `
+            <div class="p-3 bg-gray-50 rounded-lg flex items-center justify-between">
+              <div>
+                <div class="font-medium">${c.customer_name || c.customer_jid.split("@")[0]}</div>
+                <div class="text-xs text-gray-500 truncate max-w-xs">${c.last_message || '-'}</div>
+                <div class="text-xs text-gray-400">${formatDate(c.last_message_at)}</div>
+              </div>
+              <div class="flex gap-1">
+                <button onclick="claimChat(${c.id})" class="btn btn-sm btn-primary write-action">Klaim</button>
+                ${agents.length > 0 ? `<select onchange="assignChatTo(${c.id}, this.value)" class="text-xs border rounded p-1 write-action"><option value="">Assign ke...</option>${agents.map(a => `<option value="${a.jid}|${a.name}">${a.name}</option>`).join("")}</select>` : ""}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="font-bold mb-3"><i class="fas fa-user-check mr-2 text-yellow-400"></i>Sedang Ditangani (${assignedChats.length})</h3>
+        <div class="space-y-2 max-h-96 overflow-y-auto">
+          ${assignedChats.length === 0 ? '<p class="text-center py-4 text-gray-400">Tidak ada chat yang sedang ditangani</p>' : assignedChats.map(c => `
+            <div class="p-3 bg-gray-50 rounded-lg">
+              <div class="flex items-center justify-between">
+                <div>
+                  <div class="font-medium">${c.customer_name || c.customer_jid.split("@")[0]}</div>
+                  <div class="text-xs text-gray-500 truncate max-w-xs">${c.last_message || '-'}</div>
+                  <div class="text-xs text-gray-400">${formatDate(c.last_message_at)}</div>
+                </div>
+                <div class="text-right">
+                  <div class="text-xs font-medium text-blue-500">${c.agent_name || c.agent_jid}</div>
+                  <div class="flex gap-1 mt-1">
+                    <button onclick="showReplyModal(${c.id}, '${(c.customer_name || '').replace(/'/g, "\\'")}', '${c.customer_jid}')" class="btn btn-sm btn-primary write-action">Balas</button>
+                    <button onclick="resolveInboxChat(${c.id})" class="btn btn-sm btn-outline write-action">Selesai</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>`;
+  const badge = document.getElementById("inboxBadge");
+  if (badge) { if (stats.unassigned > 0) { badge.textContent = stats.unassigned; badge.classList.remove("hidden"); } else { badge.classList.add("hidden"); } }
+}
+
+async function claimChat(id) {
+  const me = await api("/api/me");
+  await api(`/api/inbox/${id}/assign`, { method: "PUT", body: { agent_jid: me.username || me.name, agent_name: me.name } });
+  toast("Chat diklaim"); showPage("inbox");
+}
+
+async function assignChatTo(id, val) {
+  if (!val) return;
+  const [jid, name] = val.split("|");
+  await api(`/api/inbox/${id}/assign`, { method: "PUT", body: { agent_jid: jid, agent_name: name } });
+  toast(`Chat di-assign ke ${name}`); showPage("inbox");
+}
+
+async function resolveInboxChat(id) {
+  await api(`/api/inbox/${id}/resolve`, { method: "PUT" });
+  toast("Chat selesai"); showPage("inbox");
+}
+
+function showReplyModal(id, name, jid) {
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-reply mr-2 text-blue-500"></i>Balas ke ${name || jid.split("@")[0]}</h3>
+    <div class="space-y-3">
+      <textarea id="inboxReplyMsg" rows="4" placeholder="Tulis balasan..."></textarea>
+      <div class="flex gap-2 justify-end"><button onclick="closeModal()" class="btn btn-outline">Batal</button><button onclick="sendInboxReply(${id})" class="btn btn-primary">Kirim</button></div>
+    </div>`);
+}
+
+async function sendInboxReply(id) {
+  const msg = document.getElementById("inboxReplyMsg").value;
+  if (!msg) return toast("Pesan tidak boleh kosong", "error");
+  try {
+    await api(`/api/inbox/${id}/reply`, { method: "POST", body: { message: msg, botId: selectedBotId } });
+    closeModal(); toast("Pesan terkirim"); showPage("inbox");
+  } catch (e) { toast(e.message || "Gagal mengirim", "error"); }
+}
+
+// ===== HANDOFFS =====
+async function renderHandoffs(el) {
+  const stats = await api("/api/handoffs/stats");
+  const handoffs = await api("/api/handoffs");
+  el.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div class="card text-center"><div class="text-2xl font-bold text-blue-500">${stats.total || 0}</div><div class="text-xs text-gray-500">Total Handoff</div></div>
+      <div class="card text-center"><div class="text-2xl font-bold text-yellow-500">${stats.pending || 0}</div><div class="text-xs text-gray-500">Pending</div></div>
+      <div class="card text-center"><div class="text-2xl font-bold text-orange-500">${stats.active || 0}</div><div class="text-xs text-gray-500">Aktif</div></div>
+      <div class="card text-center"><div class="text-2xl font-bold text-green-500">${stats.resolved || 0}</div><div class="text-xs text-gray-500">Selesai</div></div>
+    </div>
+    <div class="card overflow-x-auto">
+      <table>
+        <thead><tr><th>Customer</th><th>Agent</th><th>Alasan</th><th>Status</th><th>Waktu</th><th>Aksi</th></tr></thead>
+        <tbody>${handoffs.map(h => `<tr>
+          <td><div class="font-medium">${h.customer_name || '-'}</div><div class="text-xs text-gray-400">${h.customer_jid}</div></td>
+          <td>${h.agent_name || h.agent_jid || '-'}</td>
+          <td class="text-xs max-w-xs truncate">${h.reason || '-'}</td>
+          <td>${h.status === 'resolved' ? '<span class="badge badge-green">Selesai</span>' : h.status === 'active' ? '<span class="badge badge-yellow">Aktif</span>' : '<span class="badge badge-blue">Pending</span>'}</td>
+          <td class="text-xs text-gray-500">${formatDate(h.created_at)}</td>
+          <td class="flex gap-1">
+            ${h.chat_summary ? `<button onclick="viewHandoffSummary(${h.id})" class="btn btn-sm btn-outline">Chat</button>` : ''}
+            ${h.status !== 'resolved' ? `<button onclick="resolveHandoff(${h.id})" class="btn btn-sm btn-primary write-action">Selesai</button>` : ''}
+          </td>
+        </tr>`).join("")}</tbody>
+      </table>
+      ${handoffs.length === 0 ? '<p class="text-center py-8 text-gray-400">Belum ada handoff</p>' : ""}
+    </div>`;
+}
+
+async function resolveHandoff(id) {
+  await api(`/api/handoffs/${id}/status`, { method: "PUT", body: { status: "resolved" } });
+  toast("Handoff selesai"); showPage("handoffs");
+}
+
+async function viewHandoffSummary(id) {
+  const handoffs = await api("/api/handoffs");
+  const h = handoffs.find(x => x.id === id);
+  if (!h || !h.chat_summary) return toast("Tidak ada riwayat chat", "error");
+  const lines = h.chat_summary.split("\n").map(l => {
+    if (l.startsWith("Customer:")) return `<div class="p-2 bg-green-50 rounded mb-1"><span class="font-medium text-green-700">Customer:</span> ${l.replace("Customer: ", "")}</div>`;
+    if (l.startsWith("AI:")) return `<div class="p-2 bg-blue-50 rounded mb-1"><span class="font-medium text-blue-700">AI:</span> ${l.replace("AI: ", "")}</div>`;
+    return `<div class="p-2 bg-gray-50 rounded mb-1">${l}</div>`;
+  }).join("");
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-comments mr-2 text-blue-500"></i>Riwayat Chat — ${h.customer_name || 'Customer'}</h3>
+    <div class="max-h-96 overflow-y-auto space-y-1">${lines}</div>
     <div class="flex justify-end mt-4"><button onclick="closeModal()" class="btn btn-outline">Tutup</button></div>`);
 }
 

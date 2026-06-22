@@ -30,6 +30,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 
 import attachSticker from "./lib/sticker.js";
+import { updateBroadcastMessageStatus, getBroadcastIdByMessageId, refreshBroadcastCounts } from "./database/business/db.js";
 
 // Path ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -280,6 +281,24 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       await handleIncomingMessage(m);
     } catch (err) {
       console.error(chalk.red.bold(`❌  ${tag} Gagal memproses pesan masuk:`), err);
+    }
+  });
+
+  // Track delivery/read status updates for broadcast open-rate tracking
+  lenwy.ev.on("messages.update", (updates) => {
+    for (const { key, update } of updates) {
+      if (!update.status || !key.id) continue;
+      // WAMessageStatus: 2=SERVER_ACK, 3=DELIVERY_ACK, 4=READ, 5=PLAYED
+      if (update.status >= 3) {
+        const status = update.status >= 4 ? "read" : "delivered";
+        try {
+          updateBroadcastMessageStatus(key.id, status);
+          const bcId = getBroadcastIdByMessageId(key.id);
+          if (bcId) refreshBroadcastCounts(bcId);
+        } catch (err) {
+          // Silently ignore — most messages aren't broadcasts
+        }
+      }
     }
   });
 
