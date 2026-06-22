@@ -2,6 +2,8 @@ import axios from "axios";
 import { getProfile, getAllProducts, getAllFaq, getAllAgents } from "../../database/business/db.js";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
 
+const AI_BADGE = "\n\n✦⁺ 𝗔𝗜";
+
 const conversationHistory = new Map();
 const MAX_HISTORY = 10;
 const HISTORY_TTL = 30 * 60 * 1000;
@@ -267,7 +269,7 @@ export async function askBusinessAssistant(question, ownerId = 1, senderId = "")
       addToHistory(senderId, "customer", question);
       addToHistory(senderId, "assistant", cleaned);
     }
-    return cleaned || null;
+    return cleaned ? cleaned + AI_BADGE : null;
   } catch (err) {
     console.error("AI Assistant Error:", err.message);
     return null;
