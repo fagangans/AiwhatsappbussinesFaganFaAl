@@ -10,7 +10,7 @@ import { WebSocketServer } from "ws";
 import QRCode from "qrcode";
 
 import { bulkSend, getRateLimitStatus } from "../WhatsApp/case/business/rate-limiter.js";
-import { getLatestQr } from "../WhatsApp/index.js";
+import { getLatestQr, getConnectError } from "../WhatsApp/index.js";
 
 import db, {
   getProfile, updateProfile,
@@ -270,7 +270,9 @@ export default function startDashboard() {
     addBot(botId, ownerId, name, cleanPhone);
 
     if (useQr) {
-      app.connectBot({ id: botId, name, phone: cleanPhone, owner_id: ownerId, method: "qr" }).catch(() => {});
+      app.connectBot({ id: botId, name, phone: cleanPhone, owner_id: ownerId, method: "qr" }).catch((err) => {
+        console.error(`Gagal memulai koneksi QR untuk bot ${botId}:`, err.message || err);
+      });
       return res.json({ success: true, botId, method: "qr" });
     }
 
@@ -332,7 +334,9 @@ export default function startDashboard() {
     }
 
     resetBotSession(bot.id);
-    app.connectBot({ id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id, method: "qr" }).catch(() => {});
+    app.connectBot({ id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id, method: "qr" }).catch((err) => {
+      console.error(`Gagal memulai ulang koneksi QR untuk bot ${bot.id}:`, err.message || err);
+    });
     res.json({ success: true });
   });
 
@@ -348,7 +352,11 @@ export default function startDashboard() {
     }
 
     const qrRaw = getLatestQr(bot.id);
-    if (!qrRaw) return res.json({ connected: false, qr: null });
+    if (!qrRaw) {
+      const connectError = getConnectError(bot.id);
+      if (connectError) return res.json({ connected: false, qr: null, error: connectError });
+      return res.json({ connected: false, qr: null });
+    }
 
     try {
       const qrImage = await QRCode.toDataURL(qrRaw, { width: 280, margin: 1 });

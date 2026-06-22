@@ -41,6 +41,7 @@ const currentSockets = new Map();
 const reconnectAttempts = new Map();
 const reconnectTimers = new Map();
 const latestQr = new Map();
+const connectErrors = new Map();
 
 // QR code mentah (string) terbaru untuk bot yang sedang pairing via QR.
 // Di-render jadi gambar oleh dashboard (lihat dashboard/server.js), bukan di sini.
@@ -48,11 +49,19 @@ export function getLatestQr(botId) {
   return latestQr.get(botId) || null;
 }
 
+// Error terakhir saat mencoba membuat koneksi pertama kali (sebelum socket
+// terbuka), supaya dashboard tidak polling QR selamanya kalau koneksi gagal
+// total (misal gagal fetch versi WA) sebelum sempat emit event QR apapun.
+export function getConnectError(botId) {
+  return connectErrors.get(botId) || null;
+}
+
 // Hentikan koneksi/percobaan reconnect untuk bot yang dihapus dari dashboard
 export function stopBot(botId) {
   activeSessions.delete(botId);
   reconnectAttempts.delete(botId);
   latestQr.delete(botId);
+  connectErrors.delete(botId);
   const timer = reconnectTimers.get(botId);
   if (timer) {
     clearTimeout(timer);
@@ -92,32 +101,41 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
   const sessionId = Date.now();
   activeSessions.set(botId, sessionId);
+  connectErrors.delete(botId);
 
-  if (!fs.existsSync(sessionPath)) {
-    fs.mkdirSync(sessionPath, { recursive: true });
+  let lenwy, saveCreds;
+  try {
+    if (!fs.existsSync(sessionPath)) {
+      fs.mkdirSync(sessionPath, { recursive: true });
+    }
+
+    const authState = await useMultiFileAuthState(sessionPath);
+    saveCreds = authState.saveCreds;
+
+    const { version, isLatest } = await fetchLatestBaileysVersion();
+    if (!isReconnect) {
+      console.log(`${tag} Using WA v${version.join(".")}, isLatest: ${isLatest}`);
+    }
+
+    lenwy = makeWASocket({
+      logger: pino({ level: "silent" }),
+      printQRInTerminal: false,
+      auth: authState.state,
+      browser: ["Lenwy CS", "Chrome", "120.0.0"],
+      version,
+      syncFullHistory: false,
+      markOnlineOnConnect: false,
+      generateHighQualityLinkPreview: false,
+      connectTimeoutMs: 60000,
+      keepAliveIntervalMs: 25000,
+      retryRequestDelayMs: 250,
+      getMessage: async () => undefined,
+    });
+  } catch (err) {
+    connectErrors.set(botId, err.message || String(err));
+    activeSessions.delete(botId);
+    throw err;
   }
-
-  const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
-
-  const { version, isLatest } = await fetchLatestBaileysVersion();
-  if (!isReconnect) {
-    console.log(`${tag} Using WA v${version.join(".")}, isLatest: ${isLatest}`);
-  }
-
-  const lenwy = makeWASocket({
-    logger: pino({ level: "silent" }),
-    printQRInTerminal: false,
-    auth: state,
-    browser: ["Lenwy CS", "Chrome", "120.0.0"],
-    version,
-    syncFullHistory: false,
-    markOnlineOnConnect: false,
-    generateHighQualityLinkPreview: false,
-    connectTimeoutMs: 60000,
-    keepAliveIntervalMs: 25000,
-    retryRequestDelayMs: 250,
-    getMessage: async () => undefined,
-  });
 
   // Bot was stopped/deleted while we were setting up — abort immediately
   if (activeSessions.get(botId) !== sessionId) {
@@ -138,6 +156,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
     // Mode QR: Baileys emit string QR baru tiap kali kode lama kedaluwarsa
     if (qr && !usePairingCode) {
       latestQr.set(botId, qr);
+      connectErrors.delete(botId);
     }
 
     if (connection === "close") {
@@ -173,19 +192,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       const attempts = (reconnectAttempts.get(botId) || 0) + 1;
       reconnectAttempts.set(botId, attempts);
 
-      // Belum registered + pakai pairing code = kode yang sudah ditampilkan ke user
-      // jadi basi setiap kali socket reconnect (Baileys tidak re-issue kode lama).
-      // Daripada buang 15x percobaan pada kode yang sudah mati, berhenti lebih cepat
-      // dan arahkan user untuk minta kode baru lewat dashboard.
-      const isUnregisteredPairing = usePairingCode && !lenwy.authState.creds.registered;
-      const maxAttempts = isUnregisteredPairing ? 2 : 15;
-
-      if (attempts > maxAttempts) {
-        if (isUnregisteredPairing) {
-          console.log(chalk.red(`❌  ${tag} Kode pairing sudah basi setelah ${attempts} kali koneksi putus — berhenti. Minta kode pairing baru lewat dashboard.`));
-        } else {
-          console.log(chalk.red(`❌  ${tag} Gagal reconnect setelah ${attempts} percobaan — berhenti. Cek koneksi internet / restart bot via dashboard.`));
-        }
+      if (attempts > 15) {
+        console.log(chalk.red(`❌  ${tag} Gagal reconnect setelah ${attempts} percobaan — berhenti. Cek koneksi internet / restart bot via dashboard.`));
         activeSessions.delete(botId);
         reconnectAttempts.delete(botId);
         return;
@@ -195,7 +203,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       const jitter = Math.floor(Math.random() * 2000);
       const delay = baseDelay + jitter;
 
-      console.log(chalk.yellow(`⏳  ${tag} Koneksi terputus (${statusCode || "unknown"}), reconnect attempt ${attempts}/${maxAttempts} dalam ${Math.round(delay / 1000)}s...`));
+      console.log(chalk.yellow(`⏳  ${tag} Koneksi terputus (${statusCode || "unknown"}), reconnect attempt ${attempts}/15 dalam ${Math.round(delay / 1000)}s...`));
 
       const timer = setTimeout(() => {
         reconnectTimers.delete(botId);
@@ -209,6 +217,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
     } else if (connection === "open") {
       reconnectAttempts.delete(botId);
       latestQr.delete(botId);
+      connectErrors.delete(botId);
       console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
       if (dashboardApp && dashboardApp.setWaSocket) {
         dashboardApp.setWaSocket(botId, botName, lenwy);
@@ -242,7 +251,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
           `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
         );
       }
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await lenwy.waitForSocketOpen();
       const code = await lenwy.requestPairingCode(phoneNumber.trim());
       console.log(`🎁 ${tag} Pairing Code : ${code}`);
       if (typeof botConfig.onPairingCode === "function") {

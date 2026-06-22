@@ -122,6 +122,12 @@ function pollBotQr(botId, imgElId) {
         loadBots();
         return;
       }
+      if (res.error) {
+        clearInterval(activePoll);
+        activePoll = null;
+        toast("Gagal memulai koneksi: " + res.error, "error");
+        return;
+      }
       const img = document.getElementById(imgElId);
       if (res.qr && img) {
         img.src = res.qr;
