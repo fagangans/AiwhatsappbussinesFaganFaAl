@@ -111,7 +111,7 @@ function closeModal() {
 // Polling generik: cek QR/status koneksi bot tiap 3s sampai connected atau modal ditutup
 function pollBotQr(botId, imgElId) {
   if (activePoll) clearInterval(activePoll);
-  activePoll = setInterval(async () => {
+  async function checkQr() {
     try {
       const res = await api(`/api/bots/${botId}/qr-code`);
       if (res.connected) {
@@ -122,12 +122,17 @@ function pollBotQr(botId, imgElId) {
         loadBots();
         return;
       }
-      if (res.qr) {
-        const img = document.getElementById(imgElId);
-        if (img) img.src = res.qr;
+      const img = document.getElementById(imgElId);
+      if (res.qr && img) {
+        img.src = res.qr;
+        img.style.display = "block";
+        const loader = document.getElementById(imgElId + "Loader");
+        if (loader) loader.style.display = "none";
       }
     } catch (_) {}
-  }, 3000);
+  }
+  checkQr();
+  activePoll = setInterval(checkQr, 3000);
 }
 
 document.getElementById("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
@@ -1136,7 +1141,11 @@ function showAddBot() {
         </div>
       </div>
       <div id="qrResult" class="hidden text-center">
-        <img id="addBotQrImg" class="mx-auto border rounded-lg" style="width:220px;height:220px;object-fit:contain" />
+        <div id="addBotQrImgLoader" class="mx-auto flex flex-col items-center justify-center border rounded-lg bg-gray-50" style="width:220px;height:220px">
+          <i class="fas fa-spinner fa-spin text-2xl text-gray-400 mb-2"></i>
+          <p class="text-xs text-gray-400">Memuat QR Code...</p>
+        </div>
+        <img id="addBotQrImg" class="mx-auto border rounded-lg" style="width:220px;height:220px;object-fit:contain;display:none" />
         <p class="text-xs text-gray-500 mt-2">Buka WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat &gt; arahkan kamera ke QR ini. QR akan otomatis refresh sampai berhasil di-scan.</p>
       </div>
       <div id="pairingError" class="hidden">
@@ -1244,7 +1253,11 @@ function requestPairingAgain(id, name) {
         </div>
       </div>
       <div id="repairQrResult" class="hidden text-center">
-        <img id="repairBotQrImg" class="mx-auto border rounded-lg" style="width:220px;height:220px;object-fit:contain" />
+        <div id="repairBotQrImgLoader" class="mx-auto flex flex-col items-center justify-center border rounded-lg bg-gray-50" style="width:220px;height:220px">
+          <i class="fas fa-spinner fa-spin text-2xl text-gray-400 mb-2"></i>
+          <p class="text-xs text-gray-400">Memuat QR Code...</p>
+        </div>
+        <img id="repairBotQrImg" class="mx-auto border rounded-lg" style="width:220px;height:220px;object-fit:contain;display:none" />
         <p class="text-xs text-gray-500 mt-2">Buka WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat &gt; arahkan kamera ke QR ini. QR akan otomatis refresh sampai berhasil di-scan.</p>
       </div>
       <div id="repairError" class="hidden">

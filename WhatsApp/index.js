@@ -128,31 +128,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
   attachSticker(lenwy);
 
-  // Handle Pairing — only on first connect, NEVER on reconnect
-  if (usePairingCode && !lenwy.authState.creds.registered && !isReconnect) {
-    try {
-      let phoneNumber;
-      if (botConfig.phone) {
-        phoneNumber = botConfig.phone;
-      } else {
-        phoneNumber = await question(
-          `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
-        );
-      }
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      const code = await lenwy.requestPairingCode(phoneNumber.trim());
-      console.log(`🎁 ${tag} Pairing Code : ${code}`);
-      if (typeof botConfig.onPairingCode === "function") {
-        botConfig.onPairingCode(code);
-      }
-    } catch (err) {
-      console.error(`${tag} Failed to get pairing code:`, err);
-      if (typeof botConfig.onPairingError === "function") {
-        botConfig.onPairingError(err);
-      }
-    }
-  }
-
+  // Register event handlers FIRST — before pairing code request — so no
+  // connection/QR events are missed during the delay.
   lenwy.ev.on("creds.update", saveCreds);
 
   lenwy.ev.on("connection.update", (update) => {
@@ -241,6 +218,32 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       console.error(chalk.red.bold(`❌  ${tag} Gagal memproses pesan masuk:`), err);
     }
   });
+
+  // Handle Pairing — only on first connect, NEVER on reconnect.
+  // Placed AFTER event handlers so connection events are not missed.
+  if (usePairingCode && !lenwy.authState.creds.registered && !isReconnect) {
+    try {
+      let phoneNumber;
+      if (botConfig.phone) {
+        phoneNumber = botConfig.phone;
+      } else {
+        phoneNumber = await question(
+          `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const code = await lenwy.requestPairingCode(phoneNumber.trim());
+      console.log(`🎁 ${tag} Pairing Code : ${code}`);
+      if (typeof botConfig.onPairingCode === "function") {
+        botConfig.onPairingCode(code);
+      }
+    } catch (err) {
+      console.error(`${tag} Failed to get pairing code:`, err);
+      if (typeof botConfig.onPairingError === "function") {
+        botConfig.onPairingError(err);
+      }
+    }
+  }
 
   async function handleIncomingMessage(m) {
     const msg = m.messages[0];
