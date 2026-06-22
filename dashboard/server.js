@@ -7,8 +7,10 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
+import QRCode from "qrcode";
 
 import { bulkSend, getRateLimitStatus } from "../WhatsApp/case/business/rate-limiter.js";
+import { getLatestQr } from "../WhatsApp/index.js";
 
 import db, {
   getProfile, updateProfile,
@@ -228,18 +230,48 @@ export default function startDashboard() {
     });
   }
 
+  // Setelah bot connect via QR (tanpa nomor diisi manual), simpan nomor asli ke DB
+  app.onBotConnected = (botId, phone) => {
+    const bot = getBot(botId);
+    if (bot && phone && !bot.phone) {
+      updateBot(botId, { phone });
+    }
+  };
+
+  // Hentikan percobaan koneksi yang sedang berjalan + hapus sesi auth lama,
+  // supaya Baileys menganggap bot belum terdaftar dan mau pairing/QR dari awal
+  function resetBotSession(botId) {
+    app.stopBot?.(botId);
+    waSockets.delete(botId);
+    const sessionPath = path.resolve(__dirname, "../sessions", botId);
+    if (fs.existsSync(sessionPath)) {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+    }
+  }
+
   app.post("/api/bots/add", auth, async (req, res) => {
-    const { name, phone } = req.body;
-    if (!name || !phone) return res.status(400).json({ error: "Nama dan nomor telepon wajib diisi" });
-    const cleanPhone = phone.replace(/[^0-9]/g, "");
-    if (cleanPhone.length < 10) return res.status(400).json({ error: "Nomor telepon tidak valid" });
+    const { name, phone, method } = req.body;
+    const useQr = method === "qr";
+    if (!name) return res.status(400).json({ error: "Nama bot wajib diisi" });
+
+    let cleanPhone = "";
+    if (!useQr) {
+      if (!phone) return res.status(400).json({ error: "Nomor telepon wajib diisi" });
+      cleanPhone = phone.replace(/[^0-9]/g, "");
+      if (cleanPhone.length < 10) return res.status(400).json({ error: "Nomor telepon tidak valid" });
+    }
+
+    if (!app.connectBot) {
+      return res.status(503).json({ error: "Sistem bot belum siap, coba lagi nanti" });
+    }
 
     const ownerId = getWriteOwnerId(req);
     const botId = `bot_${Date.now()}_${ownerId}`;
     addBot(botId, ownerId, name, cleanPhone);
 
-    if (!app.connectBot) {
-      return res.status(503).json({ error: "Sistem bot belum siap, coba lagi nanti" });
+    if (useQr) {
+      app.connectBot({ id: botId, name, phone: cleanPhone, owner_id: ownerId, method: "qr" }).catch(() => {});
+      return res.json({ success: true, botId, method: "qr" });
     }
 
     try {
@@ -253,14 +285,23 @@ export default function startDashboard() {
     }
   });
 
+  function checkBotOwnership(req, res, bot) {
+    if (!bot) {
+      res.status(404).json({ error: "Bot tidak ditemukan" });
+      return false;
+    }
+    if (req.user.role !== "admin" && bot.owner_id !== req.user.id) {
+      res.status(403).json({ error: "Tidak bisa mengelola bot milik orang lain" });
+      return false;
+    }
+    return true;
+  }
+
   // Minta ulang pairing code untuk bot yang sudah ada tapi belum/tidak terhubung
   // (misal kode pairing pertama kelewat waktu) — tanpa hapus bot & buat baru
   app.post("/api/bots/:id/pairing-code", auth, async (req, res) => {
     const bot = getBot(req.params.id);
-    if (!bot) return res.status(404).json({ error: "Bot tidak ditemukan" });
-    if (req.user.role !== "admin" && bot.owner_id !== req.user.id) {
-      return res.status(403).json({ error: "Tidak bisa mengelola bot milik orang lain" });
-    }
+    if (!checkBotOwnership(req, res, bot)) return;
     if (waSockets.has(bot.id)) {
       return res.status(400).json({ error: "Bot sudah terhubung, tidak perlu pairing ulang" });
     }
@@ -268,19 +309,52 @@ export default function startDashboard() {
       return res.status(503).json({ error: "Sistem bot belum siap, coba lagi nanti" });
     }
 
-    app.stopBot?.(bot.id);
-    waSockets.delete(bot.id);
-
-    const sessionPath = path.resolve(__dirname, "../sessions", bot.id);
-    if (fs.existsSync(sessionPath)) {
-      fs.rmSync(sessionPath, { recursive: true, force: true });
-    }
+    resetBotSession(bot.id);
 
     try {
       const result = await requestPairingCode({ id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id });
       res.json({ success: true, pairingCode: result.code });
     } catch (e) {
       res.status(500).json({ error: "Gagal mendapatkan kode pairing: " + e.message });
+    }
+  });
+
+  // Mulai ulang koneksi bot dalam mode QR Code (alternatif dari pairing code) —
+  // hanya memulai, hasil QR-nya diambil lewat polling GET /api/bots/:id/qr-code
+  app.post("/api/bots/:id/request-qr", auth, async (req, res) => {
+    const bot = getBot(req.params.id);
+    if (!checkBotOwnership(req, res, bot)) return;
+    if (waSockets.has(bot.id)) {
+      return res.status(400).json({ error: "Bot sudah terhubung, tidak perlu pairing ulang" });
+    }
+    if (!app.connectBot) {
+      return res.status(503).json({ error: "Sistem bot belum siap, coba lagi nanti" });
+    }
+
+    resetBotSession(bot.id);
+    app.connectBot({ id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id, method: "qr" }).catch(() => {});
+    res.json({ success: true });
+  });
+
+  // Polling: ambil QR code terbaru (base64 PNG) untuk bot yang sedang pairing,
+  // atau status sudah terhubung. QR Baileys refresh otomatis tiap ~20-60 detik
+  // sehingga frontend perlu polling endpoint ini berulang sampai connected.
+  app.get("/api/bots/:id/qr-code", auth, async (req, res) => {
+    const bot = getBot(req.params.id);
+    if (!checkBotOwnership(req, res, bot)) return;
+
+    if (waSockets.has(bot.id)) {
+      return res.json({ connected: true, qr: null });
+    }
+
+    const qrRaw = getLatestQr(bot.id);
+    if (!qrRaw) return res.json({ connected: false, qr: null });
+
+    try {
+      const qrImage = await QRCode.toDataURL(qrRaw, { width: 280, margin: 1 });
+      res.json({ connected: false, qr: qrImage });
+    } catch (e) {
+      res.status(500).json({ error: "Gagal membuat gambar QR: " + e.message });
     }
   });
 

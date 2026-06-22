@@ -35,19 +35,24 @@ import attachSticker from "./lib/sticker.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Pairing Mode
-const usePairingCode = true;
-
 // Track active connection per bot to prevent reconnect stampede
 const activeSessions = new Map();
 const currentSockets = new Map();
 const reconnectAttempts = new Map();
 const reconnectTimers = new Map();
+const latestQr = new Map();
+
+// QR code mentah (string) terbaru untuk bot yang sedang pairing via QR.
+// Di-render jadi gambar oleh dashboard (lihat dashboard/server.js), bukan di sini.
+export function getLatestQr(botId) {
+  return latestQr.get(botId) || null;
+}
 
 // Hentikan koneksi/percobaan reconnect untuk bot yang dihapus dari dashboard
 export function stopBot(botId) {
   activeSessions.delete(botId);
   reconnectAttempts.delete(botId);
+  latestQr.delete(botId);
   const timer = reconnectTimers.get(botId);
   if (timer) {
     clearTimeout(timer);
@@ -81,6 +86,7 @@ async function question(prompt) {
 async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   const botId = botConfig.id;
   const botName = botConfig.name;
+  const usePairingCode = botConfig.method !== "qr";
   const sessionPath = path.resolve(__dirname, "../sessions", botId);
   const tag = `[${botName}]`;
 
@@ -100,7 +106,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
 
   const lenwy = makeWASocket({
     logger: pino({ level: "silent" }),
-    printQRInTerminal: !usePairingCode,
+    printQRInTerminal: false,
     auth: state,
     browser: ["Lenwy CS", "Chrome", "120.0.0"],
     version,
@@ -150,7 +156,12 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   lenwy.ev.on("creds.update", saveCreds);
 
   lenwy.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
+
+    // Mode QR: Baileys emit string QR baru tiap kali kode lama kedaluwarsa
+    if (qr && !usePairingCode) {
+      latestQr.set(botId, qr);
+    }
 
     if (connection === "close") {
       // If this session is no longer the active one for this bot, stop
@@ -209,10 +220,15 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       reconnectTimers.set(botId, timer);
     } else if (connection === "open") {
       reconnectAttempts.delete(botId);
+      latestQr.delete(botId);
       console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
       if (dashboardApp && dashboardApp.setWaSocket) {
         dashboardApp.setWaSocket(botId, botName, lenwy);
         console.log(chalk.green(`✔  ${tag} Dashboard terhubung`));
+      }
+      if (dashboardApp && dashboardApp.onBotConnected) {
+        const actualNumber = lenwy.user?.id?.split(":")[0]?.split("@")[0] || "";
+        dashboardApp.onBotConnected(botId, actualNumber);
       }
     }
   });

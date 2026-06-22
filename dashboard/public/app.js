@@ -7,6 +7,9 @@ let userRole = localStorage.getItem("userRole") || "";
 let userId = localStorage.getItem("userId") || "";
 let viewBotId = localStorage.getItem("viewBotId") || "";
 let myBotAccess = [];
+let activePoll = null;
+let addBotMethod = "code";
+let repairBotMethod = "code";
 
 async function api(path, options = {}) {
   const method = (options.method || "GET").toUpperCase();
@@ -100,8 +103,31 @@ function showModal(html) {
 }
 
 function closeModal() {
+  if (activePoll) { clearInterval(activePoll); activePoll = null; }
   document.getElementById("modal").classList.add("hidden");
   document.getElementById("modal").classList.remove("flex");
+}
+
+// Polling generik: cek QR/status koneksi bot tiap 3s sampai connected atau modal ditutup
+function pollBotQr(botId, imgElId) {
+  if (activePoll) clearInterval(activePoll);
+  activePoll = setInterval(async () => {
+    try {
+      const res = await api(`/api/bots/${botId}/qr-code`);
+      if (res.connected) {
+        clearInterval(activePoll);
+        activePoll = null;
+        toast("Bot berhasil terhubung!", "success");
+        closeModal();
+        loadBots();
+        return;
+      }
+      if (res.qr) {
+        const img = document.getElementById(imgElId);
+        if (img) img.src = res.qr;
+      }
+    } catch (_) {}
+  }, 3000);
 }
 
 document.getElementById("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
@@ -1091,18 +1117,27 @@ async function renderBotManager(el) {
 }
 
 function showAddBot() {
+  addBotMethod = "code";
   showModal(`
     <h3 class="text-lg font-bold mb-4"><i class="fas fa-robot mr-2 text-green-500"></i>Tambah Bot WhatsApp</h3>
     <div class="space-y-3">
+      <div class="flex gap-2">
+        <button id="addTabCode" onclick="switchAddMethod('code')" class="btn btn-primary text-xs flex-1"><i class="fas fa-keyboard mr-1"></i>Kode Pairing</button>
+        <button id="addTabQr" onclick="switchAddMethod('qr')" class="btn btn-outline text-xs flex-1"><i class="fas fa-qrcode mr-1"></i>Scan QR Code</button>
+      </div>
       <div><label class="block text-sm font-medium mb-1">Nama Bot *</label><input id="botName" placeholder="Bot Toko Saya"></div>
-      <div><label class="block text-sm font-medium mb-1">Nomor WhatsApp * (awali 62)</label><input id="botPhone" placeholder="628123456789"></div>
-      <p class="text-xs text-gray-400">Masukkan nomor WhatsApp yang ingin dijadikan bot. Setelah klik Mulai, pairing code akan muncul. Masukkan code tersebut di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat.</p>
+      <div id="addPhoneField"><label class="block text-sm font-medium mb-1">Nomor WhatsApp * (awali 62)</label><input id="botPhone" placeholder="628123456789"></div>
+      <p class="text-xs text-gray-400" id="addMethodHint">Masukkan nomor WhatsApp yang ingin dijadikan bot. Setelah klik Mulai, pairing code akan muncul. Masukkan code tersebut di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat.</p>
       <div id="pairingResult" class="hidden">
         <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
           <p class="text-sm text-green-800 mb-2">Pairing Code:</p>
           <p class="text-3xl font-bold text-green-700 tracking-widest" id="pairingCode"></p>
           <p class="text-xs text-green-600 mt-2">Masukkan code ini di WhatsApp kamu</p>
         </div>
+      </div>
+      <div id="qrResult" class="hidden text-center">
+        <img id="addBotQrImg" class="mx-auto border rounded-lg" style="width:220px;height:220px;object-fit:contain" />
+        <p class="text-xs text-gray-500 mt-2">Buka WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat &gt; arahkan kamera ke QR ini. QR akan otomatis refresh sampai berhasil di-scan.</p>
       </div>
       <div id="pairingError" class="hidden">
         <div class="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -1116,20 +1151,61 @@ function showAddBot() {
     </div>`);
 }
 
+function switchAddMethod(m) {
+  addBotMethod = m;
+  document.getElementById("addTabCode").className = `btn text-xs flex-1 ${m === "code" ? "btn-primary" : "btn-outline"}`;
+  document.getElementById("addTabQr").className = `btn text-xs flex-1 ${m === "qr" ? "btn-primary" : "btn-outline"}`;
+  document.getElementById("addPhoneField").classList.toggle("hidden", m === "qr");
+  document.getElementById("addMethodHint").textContent = m === "qr"
+    ? "Klik Mulai untuk menampilkan QR Code, lalu scan lewat WhatsApp > Perangkat Tertaut > Tautkan Perangkat."
+    : "Masukkan nomor WhatsApp yang ingin dijadikan bot. Setelah klik Mulai, pairing code akan muncul. Masukkan code tersebut di WhatsApp > Perangkat Tertaut > Tautkan Perangkat.";
+  document.getElementById("pairingResult").classList.add("hidden");
+  document.getElementById("qrResult").classList.add("hidden");
+  document.getElementById("pairingError").classList.add("hidden");
+}
+
 async function startPairing() {
   const name = document.getElementById("botName").value.trim();
-  const phone = document.getElementById("botPhone").value.replace(/[^0-9]/g, "");
-  if (!name || !phone) return toast("Nama dan nomor wajib diisi", "error");
-  if (!phone.startsWith("62")) return toast("Nomor harus diawali 62", "error");
+  if (!name) return toast("Nama bot wajib diisi", "error");
 
   const btn = document.getElementById("btnStartPairing");
-  btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menunggu...';
   document.getElementById("pairingResult").classList.add("hidden");
+  document.getElementById("qrResult").classList.add("hidden");
   document.getElementById("pairingError").classList.add("hidden");
 
+  if (addBotMethod === "qr") {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Memulai...';
+    try {
+      const res = await api("/api/bots/add", { method: "POST", body: { name, method: "qr" } });
+      if (res.error) {
+        document.getElementById("pairingError").classList.remove("hidden");
+        document.getElementById("pairingErrorMsg").textContent = res.error;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-link mr-1"></i>Mulai Pairing';
+        return;
+      }
+      document.getElementById("qrResult").classList.remove("hidden");
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menunggu Scan...';
+      pollBotQr(res.botId, "addBotQrImg");
+    } catch (e) {
+      document.getElementById("pairingError").classList.remove("hidden");
+      document.getElementById("pairingErrorMsg").textContent = e.message || "Gagal memulai pairing";
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-link mr-1"></i>Mulai Pairing';
+    }
+    return;
+  }
+
+  const phone = document.getElementById("botPhone").value.replace(/[^0-9]/g, "");
+  if (!phone) return toast("Nomor wajib diisi", "error");
+  if (!phone.startsWith("62")) return toast("Nomor harus diawali 62", "error");
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menunggu...';
+
   try {
-    const res = await api("/api/bots/add", { method: "POST", body: { name, phone } });
+    const res = await api("/api/bots/add", { method: "POST", body: { name, phone, method: "code" } });
     if (res.error) {
       document.getElementById("pairingError").classList.remove("hidden");
       document.getElementById("pairingErrorMsg").textContent = res.error;
@@ -1151,16 +1227,25 @@ async function startPairing() {
 }
 
 function requestPairingAgain(id, name) {
+  repairBotMethod = "code";
   showModal(`
-    <h3 class="text-lg font-bold mb-4"><i class="fas fa-qrcode mr-2 text-green-500"></i>Pairing Ulang: ${name}</h3>
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-qrcode mr-2 text-green-500"></i>Hubungkan Ulang: ${name}</h3>
     <div class="space-y-3">
-      <p class="text-xs text-gray-400">Bot belum/tidak terhubung. Klik tombol di bawah untuk minta kode pairing baru, lalu masukkan di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat sebelum kode kedaluwarsa.</p>
+      <div class="flex gap-2">
+        <button id="repairTabCode" onclick="switchRepairMethod('${id}','code')" class="btn btn-primary text-xs flex-1"><i class="fas fa-keyboard mr-1"></i>Kode Pairing</button>
+        <button id="repairTabQr" onclick="switchRepairMethod('${id}','qr')" class="btn btn-outline text-xs flex-1"><i class="fas fa-qrcode mr-1"></i>Scan QR Code</button>
+      </div>
+      <p class="text-xs text-gray-400" id="repairMethodHint">Bot belum/tidak terhubung. Klik tombol di bawah untuk minta kode pairing baru, lalu masukkan di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat sebelum kode kedaluwarsa.</p>
       <div id="repairResult" class="hidden">
         <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
           <p class="text-sm text-green-800 mb-2">Pairing Code:</p>
           <p class="text-3xl font-bold text-green-700 tracking-widest" id="repairCode"></p>
           <p class="text-xs text-green-600 mt-2">Masukkan code ini di WhatsApp kamu</p>
         </div>
+      </div>
+      <div id="repairQrResult" class="hidden text-center">
+        <img id="repairBotQrImg" class="mx-auto border rounded-lg" style="width:220px;height:220px;object-fit:contain" />
+        <p class="text-xs text-gray-500 mt-2">Buka WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat &gt; arahkan kamera ke QR ini. QR akan otomatis refresh sampai berhasil di-scan.</p>
       </div>
       <div id="repairError" class="hidden">
         <div class="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -1174,12 +1259,50 @@ function requestPairingAgain(id, name) {
     </div>`);
 }
 
+function switchRepairMethod(id, m) {
+  repairBotMethod = m;
+  document.getElementById("repairTabCode").className = `btn text-xs flex-1 ${m === "code" ? "btn-primary" : "btn-outline"}`;
+  document.getElementById("repairTabQr").className = `btn text-xs flex-1 ${m === "qr" ? "btn-primary" : "btn-outline"}`;
+  document.getElementById("repairMethodHint").textContent = m === "qr"
+    ? "Klik tombol di bawah untuk menampilkan QR Code, lalu scan lewat WhatsApp > Perangkat Tertaut > Tautkan Perangkat."
+    : "Bot belum/tidak terhubung. Klik tombol di bawah untuk minta kode pairing baru, lalu masukkan di WhatsApp > Perangkat Tertaut > Tautkan Perangkat sebelum kode kedaluwarsa.";
+  document.getElementById("repairResult").classList.add("hidden");
+  document.getElementById("repairQrResult").classList.add("hidden");
+  document.getElementById("repairError").classList.add("hidden");
+  document.getElementById("btnStartRepair").innerHTML = m === "qr"
+    ? '<i class="fas fa-qrcode mr-1"></i>Tampilkan QR Code'
+    : '<i class="fas fa-link mr-1"></i>Minta Kode Pairing';
+}
+
 async function startRepair(id) {
   const btn = document.getElementById("btnStartRepair");
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menunggu...';
   document.getElementById("repairResult").classList.add("hidden");
+  document.getElementById("repairQrResult").classList.add("hidden");
   document.getElementById("repairError").classList.add("hidden");
+
+  if (repairBotMethod === "qr") {
+    try {
+      const res = await api(`/api/bots/${id}/request-qr`, { method: "POST" });
+      if (res.error) {
+        document.getElementById("repairError").classList.remove("hidden");
+        document.getElementById("repairErrorMsg").textContent = res.error;
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-qrcode mr-1"></i>Tampilkan QR Code';
+        return;
+      }
+      document.getElementById("repairQrResult").classList.remove("hidden");
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Menunggu Scan...';
+      pollBotQr(id, "repairBotQrImg");
+    } catch (e) {
+      document.getElementById("repairError").classList.remove("hidden");
+      document.getElementById("repairErrorMsg").textContent = e.message || "Gagal menampilkan QR";
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-qrcode mr-1"></i>Tampilkan QR Code';
+    }
+    return;
+  }
 
   try {
     const res = await api(`/api/bots/${id}/pairing-code`, { method: "POST" });
