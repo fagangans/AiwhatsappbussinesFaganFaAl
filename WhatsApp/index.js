@@ -173,8 +173,19 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       const attempts = (reconnectAttempts.get(botId) || 0) + 1;
       reconnectAttempts.set(botId, attempts);
 
-      if (attempts > 15) {
-        console.log(chalk.red(`❌  ${tag} Gagal reconnect setelah ${attempts} percobaan — berhenti. Cek koneksi internet / restart bot via dashboard.`));
+      // Belum registered + pakai pairing code = kode yang sudah ditampilkan ke user
+      // jadi basi setiap kali socket reconnect (Baileys tidak re-issue kode lama).
+      // Daripada buang 15x percobaan pada kode yang sudah mati, berhenti lebih cepat
+      // dan arahkan user untuk minta kode baru lewat dashboard.
+      const isUnregisteredPairing = usePairingCode && !lenwy.authState.creds.registered;
+      const maxAttempts = isUnregisteredPairing ? 2 : 15;
+
+      if (attempts > maxAttempts) {
+        if (isUnregisteredPairing) {
+          console.log(chalk.red(`❌  ${tag} Kode pairing sudah basi setelah ${attempts} kali koneksi putus — berhenti. Minta kode pairing baru lewat dashboard.`));
+        } else {
+          console.log(chalk.red(`❌  ${tag} Gagal reconnect setelah ${attempts} percobaan — berhenti. Cek koneksi internet / restart bot via dashboard.`));
+        }
         activeSessions.delete(botId);
         reconnectAttempts.delete(botId);
         return;
@@ -184,7 +195,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       const jitter = Math.floor(Math.random() * 2000);
       const delay = baseDelay + jitter;
 
-      console.log(chalk.yellow(`⏳  ${tag} Koneksi terputus (${statusCode || "unknown"}), reconnect attempt ${attempts}/15 dalam ${Math.round(delay / 1000)}s...`));
+      console.log(chalk.yellow(`⏳  ${tag} Koneksi terputus (${statusCode || "unknown"}), reconnect attempt ${attempts}/${maxAttempts} dalam ${Math.round(delay / 1000)}s...`));
 
       const timer = setTimeout(() => {
         reconnectTimers.delete(botId);
