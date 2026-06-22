@@ -24,9 +24,9 @@ import { askBusinessAssistant, detectIntent, getAgentContact, getHistory } from 
 import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow, pauseOrderFlow, getOrderFlowState } from "./case/business/order-flow.js";
 import { hasActiveTicketFlow, startTicketFlow, continueTicketFlow } from "./case/business/ticket-flow.js";
 import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
-import { replySend } from "./case/business/rate-limiter.js";
+import { replySend, canSendMedia, recordMediaSent, delay } from "./case/business/rate-limiter.js";
 import { evaluateRules } from "./case/business/automation-engine.js";
-import { matchProducts, productCaption, MAX_SHOWCASE } from "./case/business/product-browser.js";
+import { matchProducts, productCaption, galleryExtras, MAX_SHOWCASE } from "./case/business/product-browser.js";
 import {
   getProfile, getLowStockProducts, searchFaq, getAllFaq,
   getOrCreateCustomer, getCustomerOrders, getAllProducts, getAllPaymentMethods,
@@ -441,8 +441,11 @@ export default async (lenwy, m, meta) => {
         // Helper: send order flow result
         const sendOrderResult = async (flowResult) => {
           if (!flowResult) return;
-          if (flowResult.imageUrl) {
-            try { await replySend(lenwy, replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }, botId || "default"); } catch (_) { await lenwyreply(flowResult.text); }
+          if (flowResult.imageUrl && canSendMedia(botId, normalizedSender)) {
+            try {
+              await replySend(lenwy, replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }, botId || "default");
+              recordMediaSent(botId, normalizedSender);
+            } catch (_) { await lenwyreply(flowResult.text); }
           } else {
             await lenwyreply(flowResult.text);
           }
@@ -466,26 +469,52 @@ export default async (lenwy, m, meta) => {
           }
         };
 
-        // Helper: kirim deskripsi singkat lalu foto-foto produk satu per satu (dibatasi MAX_SHOWCASE)
-        const sendProductShowcase = async (introText, products) => {
+        // Helper: kirim deskripsi singkat lalu foto-foto produk satu per satu (dibatasi
+        // MAX_SHOWCASE per giliran chat, dan dibatasi MAX_MEDIA_PER_CUSTOMER_PER_DAY per
+        // customer per hari via canSendMedia) dengan delay berjitter agar tidak terlihat
+        // seperti pola kirim massal ke WhatsApp.
+        // allowGallery: kirim foto galeri tambahan (selain foto utama) tapi HANYA kalau
+        // hasil pencarian persis 1 produk - ini berarti customer memang menanyakan satu
+        // produk spesifik, bukan browsing banyak produk, jadi volume foto per giliran
+        // chat tetap terjaga.
+        const sendProductShowcase = async (introText, products, { allowGallery = false } = {}) => {
           if (introText) await lenwyreply(introText);
           const shown = products.slice(0, MAX_SHOWCASE);
+          let mediaCapHit = false;
           for (let i = 0; i < shown.length; i++) {
             const p = shown[i];
             const caption = productCaption(p);
-            if (p.image_url) {
+            let primarySent = false;
+            if (p.image_url && canSendMedia(botId, normalizedSender)) {
               try {
                 await replySend(lenwy, replyJid, { image: { url: p.image_url }, caption }, { quoted: len }, botId || "default");
+                recordMediaSent(botId, normalizedSender);
+                primarySent = true;
               } catch (_) {
                 await lenwyreply(caption);
               }
             } else {
+              if (p.image_url) mediaCapHit = true;
               await lenwyreply(caption);
             }
-            if (i < shown.length - 1) await new Promise((r) => setTimeout(r, 700));
+
+            if (allowGallery && shown.length === 1 && primarySent) {
+              for (const img of galleryExtras(p.id, p.image_url)) {
+                if (!canSendMedia(botId, normalizedSender)) { mediaCapHit = true; break; }
+                await delay(900);
+                try {
+                  await replySend(lenwy, replyJid, { image: { url: img.image_url } }, { quoted: len }, botId || "default");
+                  recordMediaSent(botId, normalizedSender);
+                } catch (_) {}
+              }
+            }
+
+            if (i < shown.length - 1) await delay(900);
           }
           if (products.length > MAX_SHOWCASE) {
             await lenwyreply(`_...dan ${products.length - MAX_SHOWCASE} produk lainnya. Sebutkan nama produknya langsung ya biar aku kirim fotonya_ 😊`);
+          } else if (mediaCapHit) {
+            await lenwyreply(`_Beberapa foto produk di atas sementara dikirim sebagai teks dulu ya, supaya akun tetap aman_ 🙏`);
           }
         };
 
@@ -848,6 +877,7 @@ export default async (lenwy, m, meta) => {
             await sendProductShowcase(
               exact.length === 1 ? "Nih, ini produknya:" : `Ini ${exact.length} produk yang kamu cari:`,
               exact,
+              { allowGallery: true },
             );
             return;
           }

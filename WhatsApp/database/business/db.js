@@ -267,6 +267,15 @@ db.exec(`
     FOREIGN KEY (product_id) REFERENCES products(id)
   );
 
+  CREATE TABLE IF NOT EXISTS product_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    image_url TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+  );
+
   CREATE TABLE IF NOT EXISTS vouchers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     owner_id INTEGER NOT NULL DEFAULT 1,
@@ -637,6 +646,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_bot_access_client ON bot_access(client_user_id);
   CREATE INDEX IF NOT EXISTS idx_bot_access_bot ON bot_access(bot_id);
   CREATE INDEX IF NOT EXISTS idx_variants_product ON product_variants(product_id);
+  CREATE INDEX IF NOT EXISTS idx_images_product ON product_images(product_id);
   CREATE INDEX IF NOT EXISTS idx_vouchers_owner ON vouchers(owner_id);
   CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
   CREATE INDEX IF NOT EXISTS idx_payment_methods_owner ON payment_methods(owner_id);
@@ -1323,6 +1333,22 @@ export function deleteVariant(id) {
 
 export function getVariantById(id) {
   return db.prepare("SELECT * FROM product_variants WHERE id = ? AND is_active = 1").get(id);
+}
+
+// === PRODUCT IMAGES (galeri foto tambahan per produk) ===
+export function addProductImage(productId, imageUrl) {
+  const max = db.prepare("SELECT MAX(sort_order) as m FROM product_images WHERE product_id = ?").get(productId);
+  const sortOrder = (max.m ?? -1) + 1;
+  db.prepare("INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)").run(productId, imageUrl, sortOrder);
+  return db.prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order").all(productId);
+}
+
+export function getProductImages(productId) {
+  return db.prepare("SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order").all(productId);
+}
+
+export function deleteProductImage(imageId) {
+  db.prepare("DELETE FROM product_images WHERE id = ?").run(imageId);
 }
 
 // === VOUCHERS ===

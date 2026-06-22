@@ -1,7 +1,20 @@
-import { getAllProducts } from "../../database/business/db.js";
+import { getAllProducts, getProductImages } from "../../database/business/db.js";
 import { formatCurrency } from "../../database/business/helpers.js";
 
-export const MAX_SHOWCASE = 8;
+export const MAX_SHOWCASE = 6;
+
+// Jumlah maksimum foto galeri tambahan yang dikirim saat customer menanyakan
+// SATU produk secara spesifik (bukan saat browsing banyak produk sekaligus),
+// supaya volume kirim foto per giliran chat tetap terbatas.
+export const MAX_GALLERY_EXTRAS = 2;
+
+// Foto galeri tambahan untuk satu produk (selain foto utama image_url).
+export function galleryExtras(productId, primaryUrl) {
+  const images = getProductImages(productId) || [];
+  return images
+    .filter((img) => img.image_url && img.image_url !== primaryUrl)
+    .slice(0, MAX_GALLERY_EXTRAS);
+}
 
 // Kata umum yang tidak relevan untuk dijadikan kata kunci pencarian produk.
 const STOP_WORDS = new Set([

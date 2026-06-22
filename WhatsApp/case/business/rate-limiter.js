@@ -167,3 +167,30 @@ export function delay(ms) {
   const jitter = Math.floor(Math.random() * 1000);
   return new Promise(r => setTimeout(r, ms + jitter));
 }
+
+// Per-customer media-burst guard. Sending several product photos in a row
+// during one chat is normal conversational behaviour (not bulk broadcast),
+// so it isn't subject to the bulk hour/day caps above. But an unbounded
+// stream of images to the same customer still looks like burst/spam traffic
+// to WhatsApp, so it gets its own rolling-24h cap per botId+customer.
+const mediaCountByCustomer = new Map();
+const MAX_MEDIA_PER_CUSTOMER_PER_DAY = 24;
+
+function getMediaCount(botId, customerKey) {
+  const key = `${botId}:${customerKey}`;
+  let entry = mediaCountByCustomer.get(key);
+  const now = Date.now();
+  if (!entry || now - entry.lastReset > 24 * 60 * 60 * 1000) {
+    entry = { count: 0, lastReset: now };
+    mediaCountByCustomer.set(key, entry);
+  }
+  return entry;
+}
+
+export function canSendMedia(botId, customerKey, max = MAX_MEDIA_PER_CUSTOMER_PER_DAY) {
+  return getMediaCount(botId || "default", customerKey).count < max;
+}
+
+export function recordMediaSent(botId, customerKey) {
+  getMediaCount(botId || "default", customerKey).count++;
+}

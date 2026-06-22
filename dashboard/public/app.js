@@ -447,6 +447,7 @@ async function renderProducts(el) {
             <td><span class="${p.stock <= 0 ? "text-red-500 font-bold" : p.stock <= 5 ? "text-yellow-500 font-bold" : "text-green-600"}">${p.stock}</span></td>
             <td class="space-x-1">
               <button onclick="showVariants(${p.id},'${p.name.replace(/'/g, "\\'")}')" class="btn btn-warning text-xs py-1 px-2 write-action" title="Varian"><i class="fas fa-palette"></i></button>
+              <button onclick="showGallery(${p.id},'${p.name.replace(/'/g, "\\'")}')" class="btn btn-outline text-xs py-1 px-2 write-action" title="Galeri Foto"><i class="fas fa-images"></i></button>
               <button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button>
               <button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button>
             </td>
@@ -469,7 +470,8 @@ async function filterProductsCat() {
   document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${p.sku||"-"}</td><td class="font-medium">${p.name}</td><td>${p.category}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td></tr>`).join("");
 }
 
-function showAddProduct() {
+async function showAddProduct() {
+  const categories = await api("/api/products/categories").catch(() => []);
   showModal(`
     <h3 class="text-lg font-bold mb-4"><i class="fas fa-plus mr-2 text-blue-500"></i>Tambah Produk</h3>
     <div class="space-y-3">
@@ -488,7 +490,11 @@ function showAddProduct() {
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Stok</label><input id="pStock" type="number" placeholder="100"></div>
-        <div><label class="block text-sm font-medium mb-1">Kategori</label><input id="pCategory" placeholder="Umum"></div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Kategori</label>
+          <input id="pCategory" list="categoryList" placeholder="Umum" autocomplete="off">
+          <datalist id="categoryList">${categories.map(c => `<option value="${c}">`).join("")}</datalist>
+        </div>
       </div>
       <div class="flex gap-2 justify-end mt-4">
         <button onclick="closeModal()" class="btn btn-outline">Batal</button>
@@ -504,7 +510,7 @@ async function saveProduct() {
 }
 
 async function editProduct(id) {
-  const p = await api(`/api/products/${id}`);
+  const [p, categories] = await Promise.all([api(`/api/products/${id}`), api("/api/products/categories").catch(() => [])]);
   showModal(`
     <h3 class="text-lg font-bold mb-4"><i class="fas fa-edit mr-2 text-blue-500"></i>Edit Produk</h3>
     <div class="space-y-3">
@@ -523,7 +529,11 @@ async function editProduct(id) {
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div><label class="block text-sm font-medium mb-1">Stok</label><input id="pStock" type="number" value="${p.stock}"></div>
-        <div><label class="block text-sm font-medium mb-1">Kategori</label><input id="pCategory" value="${p.category}"></div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Kategori</label>
+          <input id="pCategory" list="categoryList" value="${p.category}" autocomplete="off">
+          <datalist id="categoryList">${categories.map(c => `<option value="${c}">`).join("")}</datalist>
+        </div>
       </div>
       <div class="flex gap-2 justify-end mt-4">
         <button onclick="closeModal()" class="btn btn-outline">Batal</button>
@@ -1717,6 +1727,50 @@ async function addVariantBtn(productId, productName) {
 async function delVariant(variantId, productId, productName) {
   if (!confirm("Hapus varian ini?")) return;
   await api(`/api/variants/${variantId}`, { method: "DELETE" }); toast("Varian dihapus"); showVariants(productId, productName);
+}
+
+// ===== PRODUCT IMAGE GALLERY =====
+async function showGallery(productId, productName) {
+  const images = await api(`/api/products/${productId}/images`);
+  showModal(`
+    <h3 class="text-lg font-bold mb-4"><i class="fas fa-images mr-2 text-blue-500"></i>Galeri Foto: ${productName}</h3>
+    <p class="text-xs text-gray-500 mb-3">Foto utama produk (di tab Edit Produk) tetap yang dikirim bot saat menampilkan banyak produk sekaligus. Foto galeri di sini dipakai sebagai foto tambahan saat customer menanyakan produk ini secara spesifik.</p>
+    <div id="galleryList" class="grid grid-cols-3 gap-2 mb-4">
+      ${images.length > 0 ? images.map(img => `
+        <div class="relative">
+          <img src="${img.image_url}" class="rounded-lg h-24 w-full object-cover">
+          <button onclick="delGalleryImage(${img.id},${productId},'${productName.replace(/'/g, "\\'")}')" class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 text-xs"><i class="fas fa-trash"></i></button>
+        </div>`).join("") : '<p class="text-center py-4 text-gray-400 col-span-3">Belum ada foto galeri</p>'}
+    </div>
+    <hr class="my-3">
+    <h4 class="text-sm font-bold mb-2">Tambah Foto</h4>
+    <div class="flex gap-2 items-center">
+      <input type="file" id="galleryFile" accept="image/*" class="flex-1">
+      <button onclick="addGalleryImage(${productId},'${productName.replace(/'/g, "\\'")}')" class="btn btn-primary">Tambah</button>
+    </div>
+    <div class="flex gap-2 justify-end mt-4">
+      <button onclick="closeModal()" class="btn btn-outline">Tutup</button>
+    </div>`);
+}
+
+async function addGalleryImage(productId, productName) {
+  const file = document.getElementById("galleryFile").files[0];
+  if (!file) return toast("Pilih foto dulu", "error");
+  try {
+    const url = await uploadImageFile(file);
+    await api(`/api/products/${productId}/images`, { method: "POST", body: { image_url: url } });
+    toast("Foto galeri ditambahkan");
+    showGallery(productId, productName);
+  } catch (e) {
+    toast(e.message || "Gagal menambah foto", "error");
+  }
+}
+
+async function delGalleryImage(imageId, productId, productName) {
+  if (!confirm("Hapus foto ini dari galeri?")) return;
+  await api(`/api/product-images/${imageId}`, { method: "DELETE" });
+  toast("Foto dihapus");
+  showGallery(productId, productName);
 }
 
 // ===== CSV EXPORT =====

@@ -33,6 +33,7 @@ import db, {
   addBot, getBot, getAllBots, updateBot, deleteBot,
   grantBotAccess, revokeBotAccess, getBotAccessForBot, getGrantedBotsForClient, hasBotAccess,
   addVariant, getVariants, updateVariant, deleteVariant,
+  addProductImage, getProductImages, deleteProductImage,
   createVoucher, getAllVouchers, deleteVoucher, validateVoucher,
   getLowStockProducts,
   addPaymentMethod, getAllPaymentMethods, updatePaymentMethod, deletePaymentMethod,
@@ -866,6 +867,31 @@ export default function startDashboard() {
 
   app.delete("/api/variants/:id", auth, (req, res) => {
     deleteVariant(parseInt(req.params.id));
+    res.json({ success: true });
+  });
+
+  // ===== PRODUCT IMAGES (galeri foto tambahan) =====
+  app.get("/api/products/:id/images", auth, (req, res) => {
+    res.json(getProductImages(parseInt(req.params.id)));
+  });
+
+  app.post("/api/products/:id/images", auth, (req, res) => {
+    const product = getProduct(parseInt(req.params.id));
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    if (req.user.role !== "admin" && product.owner_id !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    if (!req.body.image_url) return res.status(400).json({ error: "image_url wajib diisi" });
+    try {
+      const images = addProductImage(product.id, req.body.image_url);
+      res.json({ success: true, images });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/product-images/:id", auth, (req, res) => {
+    deleteProductImage(parseInt(req.params.id));
     res.json({ success: true });
   });
 

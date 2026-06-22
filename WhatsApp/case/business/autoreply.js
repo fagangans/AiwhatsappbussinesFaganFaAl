@@ -4,6 +4,7 @@ import {
 } from "../../database/business/db.js";
 import { isBusinessOpen, getGreeting } from "../../database/business/helpers.js";
 import { analyzeImportantMessage } from "../../database/business/analyzer.js";
+import { canSendMedia, recordMediaSent } from "./rate-limiter.js";
 
 export function handleAutoReply(lenwy, replyJid, normalizedSender, pushname, body, botId = "", dashboardApp = null, ownerId = 1) {
   const profile = getProfile(ownerId);
@@ -66,9 +67,10 @@ export async function handleWelcomeMessage(lenwy, replyJid, normalizedSender, pu
   text += `🎫 *Buat Tiket Support* — kalau ada keluhan, bilang aja "mau buat tiket"\n\n`;
   text += `_Langsung chat aja ya, gak perlu pakai format khusus!_ 😊`;
 
-  if (profile.welcome_image_url) {
+  if (profile.welcome_image_url && canSendMedia(botId, normalizedSender)) {
     try {
       await lenwy.sendMessage(replyJid, { image: { url: profile.welcome_image_url }, caption: text }, { quoted: len });
+      recordMediaSent(botId, normalizedSender);
     } catch (_) {
       await lenwy.sendMessage(replyJid, { text }, { quoted: len });
     }
