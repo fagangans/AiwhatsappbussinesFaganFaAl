@@ -20,7 +20,7 @@ import "./database/Menu/LenwyMenu.js";
 
 // [ ===== Business Module ===== ]
 import { handleAutoReply, handleWelcomeMessage, handleAwayMessage } from "./case/business/autoreply.js";
-import { askBusinessAssistant, detectIntent } from "./case/business/ai-assistant.js";
+import { askBusinessAssistant, detectIntent, getAgentContact } from "./case/business/ai-assistant.js";
 import { hasActiveOrderFlow, startOrderFlow, continueOrderFlow, pauseOrderFlow, getOrderFlowState } from "./case/business/order-flow.js";
 import { hasActiveTicketFlow, startTicketFlow, continueTicketFlow } from "./case/business/ticket-flow.js";
 import { notifyNewOrder, checkLowStock, startNotificationScheduler } from "./case/business/notifications.js";
@@ -733,6 +733,17 @@ export default async (lenwy, m, meta) => {
           return;
         }
 
+        // 8b. Minta ngomong sama CS / agent manusia
+        if (intent === "minta_cs") {
+          const agent = getAgentContact(ownerId);
+          if (agent) {
+            await lenwyreply(`Tentu! Kamu bisa langsung chat *${agent.name}* di wa.me/${agent.phone} ya, nanti dibantu lebih lanjut 😊`);
+          } else {
+            await lenwyreply("Maaf, belum ada agent CS yang terdaftar saat ini. Coba tanya di sini dulu ya, saya bantu sebisanya 🙏");
+          }
+          return;
+        }
+
         // 9. Katalog
         if (intent === "katalog") {
           const products = getAllProducts(null, ownerId) || [];
@@ -766,7 +777,8 @@ export default async (lenwy, m, meta) => {
           text += `💎 *Cek Poin Loyalty* — ketik "cek poin" atau "loyalty"\n`;
           text += `🎁 *Program Referral* — ketik "referral" untuk dapat kode\n`;
           text += `⭐ *Kasih Rating* — ketik "rating" untuk review pesanan\n`;
-          text += `📦 *Paket Bundling* — ketik "paket" atau "bundle"\n\n`;
+          text += `📦 *Paket Bundling* — ketik "paket" atau "bundle"\n`;
+          text += `👤 *Ngomong Sama CS* — ketik "mau ngomong sama cs" atau "admin"\n\n`;
           text += `_Langsung chat aja ya, gak perlu pakai format khusus!_ 😊`;
           await lenwyreply(text);
           return;

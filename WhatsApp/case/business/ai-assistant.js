@@ -1,5 +1,5 @@
 import axios from "axios";
-import { getProfile, getAllProducts, getAllFaq } from "../../database/business/db.js";
+import { getProfile, getAllProducts, getAllFaq, getAllAgents } from "../../database/business/db.js";
 import Ai4Chat from "../../scrape/Ai4Chat.js";
 
 const conversationHistory = new Map();
@@ -60,6 +60,22 @@ function buildKnowledgeContext(ownerId) {
   }
 
   return { hasData: true, context };
+}
+
+export function getAgentContact(ownerId) {
+  const agents = getAllAgents(ownerId) || [];
+  if (agents.length === 0) return null;
+  const agent = agents.find((a) => a.is_online) || agents[0];
+  return { name: agent.name, phone: agent.jid.split("@")[0] };
+}
+
+const ESCALATION_HINTS = /(hubungi admin|belum (punya|ada) info|tanya (langsung )?ke admin|kurang paham|tidak yakin|silakan hubungi|hubungi kami langsung)/i;
+
+function appendAgentContact(text, ownerId) {
+  if (!text || !ESCALATION_HINTS.test(text)) return text;
+  const agent = getAgentContact(ownerId);
+  if (!agent || text.includes(agent.phone)) return text;
+  return `${text}\n\nBiar lebih cepat, kamu bisa langsung chat *${agent.name}* di wa.me/${agent.phone} ya 😊`;
 }
 
 function cleanResponse(text) {
@@ -157,6 +173,13 @@ const INTENT_PATTERNS = [
     /^(rating|review|rate)$/i,
     /\b(rating|review)\b/i,
   ] },
+  { intent: "minta_cs", patterns: [
+    /\b(mau|ingin|pengen|bisa)\b.*\b(ngomong|chat|bicara|connect|dihubungkan|tersambung)\b.*\b(cs|admin|agent|agen|manusia|orang|operator)\b/i,
+    /\b(panggil|hubungkan|sambungkan)\b.*\b(cs|admin|agent|agen|operator)\b/i,
+    /\b(nomor|kontak)\b.*\b(cs|admin|agent|agen|operator)\b/i,
+    /^(cs|admin|agen|operator)$/i,
+    /\btalk\s*to\s*(human|agent|cs)\b/i,
+  ] },
   { intent: "bundle", patterns: [
     /\b(lihat|tampil|ada|cek)\b.*\b(bundle|bundling|paket|combo)\b/i,
     /\b(bundle|bundling|paket|combo)\b.*\b(apa|aja|saja|nya)\b/i,
@@ -210,13 +233,16 @@ export async function askBusinessAssistant(question, ownerId = 1, senderId = "")
       "\n";
   }
 
-  const formatRule = `ATURAN FORMAT WAJIB:
-- Ini chat WhatsApp. Jawab SINGKAT, maksimal 2-3 kalimat saja. Langsung ke inti.
-- DILARANG: heading (#), code block, bullet list, bold berlebihan, escaped quotes (\\"), karakter aneh.
-- Boleh pakai *bold* WhatsApp HANYA untuk 1-2 kata kunci penting.
-- Bahasa Indonesia kasual tapi sopan. Maksimal 1 emoji per jawaban.
+  const formatRule = `ATURAN GAYA & FORMAT:
+- Ini chat WhatsApp, bukan email. Tulis seperti customer service profesional yang ramah: jelas, to the point, tapi tetap terasa ngobrol natural (bukan template kaku).
+- Boleh pakai 2-4 kalimat kalau memang perlu menjelaskan sesuatu yang detail, tapi jangan bertele-tele. Kalau pertanyaannya simpel, jawab singkat saja.
+- Kalau perlu menjelaskan beberapa poin, pisahkan jadi baris baru per poin (pakai "-"), JANGAN ditulis jadi satu paragraf padat yang susah dibaca.
+- Kalau pertanyaan customer ambigu atau kurang jelas maksudnya, JANGAN menebak — tanya balik dengan sopan untuk klarifikasi.
+- Kalau customer ragu/menyangsikan jawabanmu, jangan ngulang klaim yang sama. Akui keraguannya, jelaskan ulang dengan cara berbeda atau arahkan ke admin untuk kepastian.
+- DILARANG: heading (#), code block, bullet bertingkat, bold berlebihan, escaped quotes (\\"), karakter aneh.
+- Boleh pakai *bold* WhatsApp untuk istilah/angka penting (harga, nama produk, nomor), jangan dipakai di semua kata.
+- Bahasa Indonesia yang sopan dan hangat, tidak kaku, maksimal 1 emoji per jawaban.
 - Jangan menyapa ("Halo!") kecuali customer menyapa duluan.
-- JANGAN jawab dengan paragraf panjang.
 - "Menu" = fitur/layanan bot ini, BUKAN menu makanan, kecuali bisnis ini restoran.`;
 
   const antiHallucination = `ATURAN KEJUJURAN (SANGAT PENTING — WAJIB DIPATUHI):
@@ -236,7 +262,7 @@ export async function askBusinessAssistant(question, ownerId = 1, senderId = "")
 
   try {
     const answer = await callAIProvider(prompt);
-    const cleaned = cleanResponse(answer);
+    const cleaned = appendAgentContact(cleanResponse(answer), ownerId);
     if (senderId && cleaned) {
       addToHistory(senderId, "customer", question);
       addToHistory(senderId, "assistant", cleaned);
