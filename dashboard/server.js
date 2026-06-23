@@ -215,7 +215,7 @@ export default function startDashboard() {
   // Minta pairing code dari Baileys untuk { id, name, phone, owner_id }, dengan timeout 30s
   function requestPairingCode({ id, name, phone, owner_id }) {
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Timeout menunggu pairing code")), 30000);
+      const timeout = setTimeout(() => reject(new Error("Timeout menunggu pairing code")), 60000);
       app.connectBot({
         id,
         name,

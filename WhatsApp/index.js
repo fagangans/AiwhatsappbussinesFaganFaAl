@@ -53,7 +53,7 @@ const pairingRetryAttempts = new Map();
 // WhatsApp/Baileys, bukan logout asli — jadi dicoba ulang otomatis dengan
 // kode baru, dibatasi supaya tidak retry selamanya kalau memang ada masalah
 // lain (nomor salah, dll).
-const MAX_PAIRING_RETRIES = 6;
+const MAX_PAIRING_RETRIES = 10;
 
 // QR code mentah (string) terbaru untuk bot yang sedang pairing via QR.
 // Di-render jadi gambar oleh dashboard (lihat dashboard/server.js), bukan di sini.
@@ -144,6 +144,28 @@ async function question(prompt) {
   });
 }
 
+// Cache versi WA supaya tidak fetch ke jaringan tiap kali connect/retry.
+// Di-refresh maksimal sekali per jam. Kalau fetch gagal, pakai versi terakhir
+// yang berhasil di-cache (atau biarkan Baileys pakai default-nya).
+let cachedWaVersion = null;
+let cachedWaVersionAt = 0;
+const WA_VERSION_TTL = 60 * 60 * 1000;
+async function getWaVersion() {
+  const now = Date.now();
+  if (cachedWaVersion && now - cachedWaVersionAt < WA_VERSION_TTL) {
+    return cachedWaVersion;
+  }
+  try {
+    const result = await fetchLatestBaileysVersion();
+    cachedWaVersion = result;
+    cachedWaVersionAt = now;
+    return result;
+  } catch (err) {
+    if (cachedWaVersion) return cachedWaVersion;
+    throw err;
+  }
+}
+
 async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   const botId = botConfig.id;
   const botName = botConfig.name;
@@ -173,7 +195,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
     const authState = await useMultiFileAuthState(sessionPath);
     saveCreds = authState.saveCreds;
 
-    const { version, isLatest } = await fetchLatestBaileysVersion();
+    const { version, isLatest } = await getWaVersion();
     if (!isReconnect) {
       console.log(`${tag} Using WA v${version.join(".")}, isLatest: ${isLatest}`);
     }
@@ -404,7 +426,11 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         );
       }
       await lenwy.waitForSocketOpen();
-      await new Promise(r => setTimeout(r, 5000));
+      // Beri jeda singkat supaya handshake protokol WhatsApp benar-benar
+      // selesai sebelum minta kode. Jangan terlalu lama — socket yang masih
+      // belum ter-autentikasi akan ditutup WhatsApp (428) kalau menganggur
+      // terlalu lama, terutama saat ada bot lain yang sedang sibuk sync.
+      await new Promise((r) => setTimeout(r, 2000));
       const code = await lenwy.requestPairingCode(phoneNumber.trim());
       console.log(`🎁 ${tag} Pairing Code : ${code}`);
       latestPairingCode.set(botId, code);
@@ -413,9 +439,25 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         botConfig.onPairingCode(code);
       }
     } catch (err) {
-      console.error(`${tag} Failed to get pairing code:`, err);
-      if (typeof botConfig.onPairingError === "function") {
-        botConfig.onPairingError(err);
+      const errStatus = err?.output?.statusCode;
+      const isTransient =
+        errStatus === DisconnectReason.connectionClosed ||
+        errStatus === DisconnectReason.connectionLost ||
+        errStatus === DisconnectReason.timedOut ||
+        /connection closed|timed out|connection lost/i.test(err?.message || "");
+
+      // Kalau gagal karena koneksi terputus sementara (428/408 dll), JANGAN
+      // laporkan sebagai error fatal — handler "close" di atas akan otomatis
+      // mendeteksinya sebagai isPairingFailure dan retry dengan kode baru.
+      // Melaporkan onPairingError di sini akan membuat dashboard menghapus
+      // bot & membatalkan auto-retry.
+      if (isTransient) {
+        console.log(chalk.yellow(`⏳  ${tag} Gagal minta kode pairing sementara (${errStatus || "connection closed"}) — akan dicoba ulang otomatis...`));
+      } else {
+        console.error(`${tag} Failed to get pairing code:`, err);
+        if (typeof botConfig.onPairingError === "function") {
+          botConfig.onPairingError(err);
+        }
       }
     }
   }
