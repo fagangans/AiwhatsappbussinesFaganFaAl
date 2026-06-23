@@ -10,7 +10,7 @@ import { WebSocketServer } from "ws";
 import QRCode from "qrcode";
 
 import { bulkSend, getRateLimitStatus } from "../WhatsApp/case/business/rate-limiter.js";
-import { getLatestQr, getConnectError } from "../WhatsApp/index.js";
+import { getLatestQr, getConnectError, getLatestPairingCode } from "../WhatsApp/index.js";
 
 import db, {
   getProfile, updateProfile,
@@ -370,6 +370,27 @@ export default function startDashboard() {
     } catch (e) {
       res.status(500).json({ error: "Gagal membuat gambar QR: " + e.message });
     }
+  });
+
+  // Polling: ambil pairing code terbaru untuk bot yang sedang pairing.
+  // Diperlukan karena backend bisa auto-retry minta kode baru (kegagalan 401
+  // sementara saat proses pairing) tanpa request HTTP baru dari frontend.
+  app.get("/api/bots/:id/pairing-code", auth, async (req, res) => {
+    const bot = getBot(req.params.id);
+    if (!checkBotOwnership(req, res, bot)) return;
+
+    if (waSockets.has(bot.id)) {
+      return res.json({ connected: true, code: null });
+    }
+
+    const code = getLatestPairingCode(bot.id);
+    if (!code) {
+      const connectError = getConnectError(bot.id);
+      if (connectError) return res.json({ connected: false, code: null, error: connectError });
+      return res.json({ connected: false, code: null });
+    }
+
+    res.json({ connected: false, code });
   });
 
   app.delete("/api/bots/:id", auth, (req, res) => {

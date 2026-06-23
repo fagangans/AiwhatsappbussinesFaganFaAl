@@ -44,6 +44,15 @@ const reconnectTimers = new Map();
 const latestQr = new Map();
 const connectErrors = new Map();
 const conflictStreaks = new Map();
+const latestPairingCode = new Map();
+const pairingRetryAttempts = new Map();
+
+// 401 "Connection Failure" yang muncul SAAT BELUM pair (kode pairing baru
+// dimasukkan) adalah kegagalan transien yang dikenal umum terjadi di sisi
+// WhatsApp/Baileys, bukan logout asli — jadi dicoba ulang otomatis dengan
+// kode baru, dibatasi supaya tidak retry selamanya kalau memang ada masalah
+// lain (nomor salah, dll).
+const MAX_PAIRING_RETRIES = 6;
 
 // QR code mentah (string) terbaru untuk bot yang sedang pairing via QR.
 // Di-render jadi gambar oleh dashboard (lihat dashboard/server.js), bukan di sini.
@@ -56,6 +65,14 @@ export function getLatestQr(botId) {
 // total (misal gagal fetch versi WA) sebelum sempat emit event QR apapun.
 export function getConnectError(botId) {
   return connectErrors.get(botId) || null;
+}
+
+// Pairing code (string) terbaru untuk bot yang sedang pairing via kode nomor.
+// Server bisa generate kode baru otomatis kalau percobaan sebelumnya gagal
+// (lihat penanganan statusCode 401 di connection.update), jadi dashboard
+// perlu polling endpoint ini, bukan cuma mengandalkan respons HTTP pertama.
+export function getLatestPairingCode(botId) {
+  return latestPairingCode.get(botId) || null;
 }
 
 // Tutup semua socket bot yang aktif dengan rapi — dipakai saat aplikasi
@@ -92,6 +109,8 @@ export function stopBot(botId) {
   activeSessions.delete(botId);
   reconnectAttempts.delete(botId);
   latestQr.delete(botId);
+  latestPairingCode.delete(botId);
+  pairingRetryAttempts.delete(botId);
   connectErrors.delete(botId);
   conflictStreaks.delete(botId);
   const timer = reconnectTimers.get(botId);
@@ -213,13 +232,22 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const reasonText = lastDisconnect?.error?.output?.payload?.message || lastDisconnect?.error?.message || "";
 
-      // WhatsApp memakai statusCode 401 untuk DUA kasus berbeda: logout asli,
-      // ATAU stream conflict sementara (biasanya device lain login bersamaan
-      // dengan nomor yang sama). Baileys tidak membedakan ini di statusCode,
-      // jadi kita cek teks alasannya juga — kalau "conflict", JANGAN anggap
-      // logout asli (sesi masih valid, tidak perlu pair ulang).
+      // WhatsApp memakai statusCode 401 untuk TIGA kasus berbeda:
+      // 1) logout asli (perangkat dihapus dari WhatsApp) — HANYA mungkin
+      //    terjadi pada sesi yang SUDAH terdaftar/registered.
+      // 2) stream conflict sementara (device lain login bersamaan dengan
+      //    nomor yang sama).
+      // 3) kegagalan pairing sementara — terjadi PERSIS setelah kode pairing
+      //    baru dimasukkan, SEBELUM sesi terdaftar. Ini bukan logout asli
+      //    (tidak mungkin "logout" dari sesi yang belum pernah terdaftar),
+      //    melainkan bug/kegagalan transien yang umum terjadi di sisi
+      //    WhatsApp/Baileys saat validasi kode pairing.
+      // Baileys tidak membedakan ini lewat statusCode saja, jadi kita cek
+      // status registrasi & teks alasannya juga.
+      const isAlreadyRegistered = !!lenwy.authState?.creds?.registered;
       const isStreamConflict = statusCode === DisconnectReason.loggedOut && /conflict/i.test(reasonText);
-      const isLoggedOut = statusCode === DisconnectReason.loggedOut && !isStreamConflict;
+      const isPairingFailure = statusCode === DisconnectReason.loggedOut && !isStreamConflict && !isAlreadyRegistered;
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut && !isStreamConflict && isAlreadyRegistered;
       const isBadSession = statusCode === DisconnectReason.badSession;
       const isReplaced = statusCode === DisconnectReason.connectionReplaced;
 
@@ -239,6 +267,34 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         activeSessions.delete(botId);
         reconnectAttempts.delete(botId);
         conflictStreaks.delete(botId);
+        return;
+      }
+
+      if (isPairingFailure) {
+        const pairingAttempts = (pairingRetryAttempts.get(botId) || 0) + 1;
+        pairingRetryAttempts.set(botId, pairingAttempts);
+
+        if (pairingAttempts > MAX_PAIRING_RETRIES) {
+          console.log(chalk.red(`❌  ${tag} Gagal pairing setelah ${pairingAttempts} percobaan otomatis (statusCode 401, alasan: ${reasonText || "tidak diketahui"}) — berhenti. Pastikan nomor HP benar & WhatsApp di HP dalam keadaan aktif/online, lalu minta kode pairing baru lewat dashboard.`));
+          activeSessions.delete(botId);
+          pairingRetryAttempts.delete(botId);
+          latestPairingCode.delete(botId);
+          return;
+        }
+
+        console.log(chalk.yellow(`⚠️  ${tag} Pairing gagal (statusCode 401, alasan: ${reasonText || "Connection Failure"}) — ini kegagalan umum & sementara dari sisi WhatsApp, mencoba lagi otomatis dengan kode baru (percobaan ke-${pairingAttempts}/${MAX_PAIRING_RETRIES})...`));
+
+        const retryTimer = setTimeout(() => {
+          reconnectTimers.delete(botId);
+          if (activeSessions.get(botId) === sessionId) {
+            // isReconnect=false supaya kode pairing BARU diminta (kode lama
+            // sudah tidak valid setelah gagal).
+            connectToWhatsApp(dashboardApp, botConfig, false).catch((err) => {
+              console.error(chalk.red(`${tag} Pairing retry error:`), err.message);
+            });
+          }
+        }, 3000 + Math.floor(Math.random() * 2000));
+        reconnectTimers.set(botId, retryTimer);
         return;
       }
 
@@ -292,6 +348,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       latestQr.delete(botId);
       connectErrors.delete(botId);
       conflictStreaks.delete(botId);
+      pairingRetryAttempts.delete(botId);
+      latestPairingCode.delete(botId);
       console.log(chalk.green(`✔  ${tag} Bot Berhasil Terhubung Ke WhatsApp`));
       if (dashboardApp && dashboardApp.setWaSocket) {
         dashboardApp.setWaSocket(botId, botName, lenwy);
@@ -346,6 +404,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       await lenwy.waitForSocketOpen();
       const code = await lenwy.requestPairingCode(phoneNumber.trim());
       console.log(`🎁 ${tag} Pairing Code : ${code}`);
+      latestPairingCode.set(botId, code);
+      connectErrors.delete(botId);
       if (typeof botConfig.onPairingCode === "function") {
         botConfig.onPairingCode(code);
       }

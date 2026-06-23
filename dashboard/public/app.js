@@ -8,6 +8,7 @@ let userId = localStorage.getItem("userId") || "";
 let viewBotId = localStorage.getItem("viewBotId") || "";
 let myBotAccess = [];
 let activePoll = null;
+let activePairingPoll = null;
 let addBotMethod = "code";
 let repairBotMethod = "code";
 
@@ -130,6 +131,7 @@ function showModal(html) {
 
 function closeModal() {
   if (activePoll) { clearInterval(activePoll); activePoll = null; }
+  if (activePairingPoll) { clearInterval(activePairingPoll); activePairingPoll = null; }
   document.getElementById("modal").classList.add("hidden");
   document.getElementById("modal").classList.remove("flex");
 }
@@ -165,6 +167,39 @@ function pollBotQr(botId, imgElId) {
   }
   checkQr();
   activePoll = setInterval(checkQr, 3000);
+}
+
+// Polling generik: cek pairing code/status koneksi bot tiap 3s. Backend bisa
+// auto-retry minta kode baru kalau pairing gagal sementara (401 transient),
+// jadi kode yang tampil di modal harus ikut update tanpa perlu klik ulang.
+function pollPairingCode(botId, codeElId) {
+  if (activePairingPoll) clearInterval(activePairingPoll);
+  let lastCode = null;
+  async function checkCode() {
+    try {
+      const res = await api(`/api/bots/${botId}/pairing-code`);
+      if (res.connected) {
+        clearInterval(activePairingPoll);
+        activePairingPoll = null;
+        toast("Bot berhasil terhubung!", "success");
+        closeModal();
+        loadBots();
+        return;
+      }
+      if (res.error) {
+        clearInterval(activePairingPoll);
+        activePairingPoll = null;
+        toast("Gagal memulai koneksi: " + res.error, "error");
+        return;
+      }
+      const el = document.getElementById(codeElId);
+      if (res.code && el && res.code !== lastCode) {
+        lastCode = res.code;
+        el.textContent = res.code;
+      }
+    } catch (_) {}
+  }
+  activePairingPoll = setInterval(checkCode, 3000);
 }
 
 document.getElementById("modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
@@ -1297,6 +1332,7 @@ async function startPairing() {
     document.getElementById("pairingCode").textContent = res.pairingCode;
     btn.innerHTML = '<i class="fas fa-check mr-1"></i>Code Diterima';
     toast("Pairing code berhasil dibuat! Masukkan di WhatsApp.", "success");
+    pollPairingCode(res.botId, "pairingCode");
     loadBots();
   } catch (e) {
     document.getElementById("pairingError").classList.remove("hidden");
@@ -1401,6 +1437,7 @@ async function startRepair(id) {
     document.getElementById("repairCode").textContent = res.pairingCode;
     btn.innerHTML = '<i class="fas fa-check mr-1"></i>Code Diterima';
     toast("Pairing code baru berhasil dibuat! Masukkan di WhatsApp.", "success");
+    pollPairingCode(id, "repairCode");
     loadBots();
   } catch (e) {
     document.getElementById("repairError").classList.remove("hidden");
