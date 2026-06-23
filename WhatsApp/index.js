@@ -58,6 +58,35 @@ export function getConnectError(botId) {
   return connectErrors.get(botId) || null;
 }
 
+// Tutup semua socket bot yang aktif dengan rapi — dipakai saat aplikasi
+// dimatikan (SIGTERM/SIGINT, misalnya saat VPS di-reboot atau `pm2 stop`).
+// Beda dengan stopBot(): ini TIDAK menghapus sesi dari disk dan tidak
+// menyentuh state lain, hanya menutup koneksi supaya tidak ada penulisan
+// file sesi (creds.json dkk) yang terpotong di tengah jalan saat proses
+// node dimatikan.
+export async function closeAllSockets() {
+  for (const timer of reconnectTimers.values()) {
+    clearTimeout(timer);
+  }
+  reconnectTimers.clear();
+  activeSessions.clear();
+
+  const sockets = [...currentSockets.values()];
+  currentSockets.clear();
+
+  await Promise.all(
+    sockets.map(
+      (sock) =>
+        new Promise((resolve) => {
+          try {
+            sock.end(new Error("Aplikasi dimatikan"));
+          } catch {}
+          resolve();
+        }),
+    ),
+  );
+}
+
 // Hentikan koneksi/percobaan reconnect untuk bot yang dihapus dari dashboard
 export function stopBot(botId) {
   activeSessions.delete(botId);

@@ -37,9 +37,38 @@ process.on("uncaughtException", (err) => {
   console.error(chalk.red.bold("⚠️  Uncaught Exception:"), err);
 });
 
-function gracefulShutdown(signal) {
+// Diisi setelah modul WhatsApp/index.js berhasil di-import di bawah, supaya
+// shutdown handler bisa menutup socket dengan rapi tanpa import ulang.
+let closeAllWaSockets = null;
+
+let isShuttingDown = false;
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   console.log(chalk.yellow.bold(`\n⏹  ${signal} diterima, menutup aplikasi...`));
-  process.exit(0);
+
+  // Jaga-jaga kalau proses penutupan macet — jangan sampai systemd/PM2
+  // terpaksa SIGKILL paksa sebelum sempat menyimpan apapun.
+  const forceExitTimer = setTimeout(() => {
+    console.log(chalk.red.bold("⚠️  Penutupan terlalu lama, keluar paksa."));
+    process.exit(1);
+  }, 5000);
+
+  try {
+    if (closeAllWaSockets) {
+      await closeAllWaSockets();
+    }
+    // Beri sedikit waktu agar penulisan file sesi WhatsApp (creds.json dkk)
+    // yang mungkin masih berjalan sempat selesai sebelum proses benar-benar
+    // dimatikan — ini mencegah sesi WhatsApp hilang/corrupt saat VPS di-reboot.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  } catch (err) {
+    console.error(chalk.red.bold("⚠️  Gagal menutup koneksi dengan rapi:"), err);
+  } finally {
+    clearTimeout(forceExitTimer);
+    process.exit(0);
+  }
 }
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
@@ -53,7 +82,8 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
       dashboardApp = startDashboard();
     }
 
-    const { default: startWhatsApp, stopBot } = await import("./WhatsApp/index.js");
+    const { default: startWhatsApp, stopBot, closeAllSockets } = await import("./WhatsApp/index.js");
+    closeAllWaSockets = closeAllSockets;
 
     if (dashboardApp) {
       dashboardApp.connectBot = (botConfig) => startWhatsApp(dashboardApp, botConfig);
