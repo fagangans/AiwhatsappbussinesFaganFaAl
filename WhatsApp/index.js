@@ -21,6 +21,7 @@ import {
   downloadContentFromMessage,
   getContentType,
   DisconnectReason,
+  Browsers,
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import chalk from "chalk";
@@ -181,7 +182,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       logger: pino({ level: "silent" }),
       printQRInTerminal: false,
       auth: authState.state,
-      browser: ["Lenwy CS", "Chrome", "120.0.0"],
+      browser: Browsers.ubuntu("Chrome"),
       version,
       syncFullHistory: false,
       markOnlineOnConnect: false,
@@ -246,7 +247,8 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       // status registrasi & teks alasannya juga.
       const isAlreadyRegistered = !!lenwy.authState?.creds?.registered;
       const isStreamConflict = statusCode === DisconnectReason.loggedOut && /conflict/i.test(reasonText);
-      const isPairingFailure = statusCode === DisconnectReason.loggedOut && !isStreamConflict && !isAlreadyRegistered;
+      const isPairingFailure = (statusCode === DisconnectReason.loggedOut && !isStreamConflict && !isAlreadyRegistered)
+        || (statusCode === DisconnectReason.connectionClosed && !isAlreadyRegistered);
       const isLoggedOut = statusCode === DisconnectReason.loggedOut && !isStreamConflict && isAlreadyRegistered;
       const isBadSession = statusCode === DisconnectReason.badSession;
       const isReplaced = statusCode === DisconnectReason.connectionReplaced;
@@ -402,6 +404,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         );
       }
       await lenwy.waitForSocketOpen();
+      await new Promise(r => setTimeout(r, 5000));
       const code = await lenwy.requestPairingCode(phoneNumber.trim());
       console.log(`🎁 ${tag} Pairing Code : ${code}`);
       latestPairingCode.set(botId, code);
