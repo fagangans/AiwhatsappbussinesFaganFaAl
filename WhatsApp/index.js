@@ -53,7 +53,7 @@ const pairingRetryAttempts = new Map();
 // WhatsApp/Baileys, bukan logout asli — jadi dicoba ulang otomatis dengan
 // kode baru, dibatasi supaya tidak retry selamanya kalau memang ada masalah
 // lain (nomor salah, dll).
-const MAX_PAIRING_RETRIES = 10;
+const MAX_PAIRING_RETRIES = 5;
 
 // QR code mentah (string) terbaru untuk bot yang sedang pairing via QR.
 // Di-render jadi gambar oleh dashboard (lihat dashboard/server.js), bukan di sini.
@@ -299,14 +299,20 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         pairingRetryAttempts.set(botId, pairingAttempts);
 
         if (pairingAttempts > MAX_PAIRING_RETRIES) {
-          console.log(chalk.red(`❌  ${tag} Gagal pairing setelah ${pairingAttempts} percobaan otomatis (statusCode 401, alasan: ${reasonText || "tidak diketahui"}) — berhenti. Pastikan nomor HP benar & WhatsApp di HP dalam keadaan aktif/online, lalu minta kode pairing baru lewat dashboard.`));
+          console.log(chalk.red(`❌  ${tag} Gagal pairing setelah ${pairingAttempts - 1} percobaan otomatis (statusCode ${statusCode}, alasan: ${reasonText || "Connection Failure"}) — berhenti.\n   Kemungkinan besar nomor ini sedang DIBATASI SEMENTARA oleh WhatsApp karena terlalu sering minta kode pairing dalam waktu singkat.\n   Solusi: diamkan nomor ini 1-2 jam, pastikan WhatsApp di HP aktif & sinyal bagus, lalu minta kode pairing baru lewat dashboard dan SEGERA masukkan kodenya.`));
           activeSessions.delete(botId);
           pairingRetryAttempts.delete(botId);
           latestPairingCode.delete(botId);
           return;
         }
 
-        console.log(chalk.yellow(`⚠️  ${tag} Pairing gagal (statusCode 401, alasan: ${reasonText || "Connection Failure"}) — ini kegagalan umum & sementara dari sisi WhatsApp, mencoba lagi otomatis dengan kode baru (percobaan ke-${pairingAttempts}/${MAX_PAIRING_RETRIES})...`));
+        // Backoff bertingkat (8s, 16s, 32s, lalu 60s) — JANGAN retry terlalu
+        // cepat. Retry beruntun tiap beberapa detik justru memicu rate-limit
+        // WhatsApp & membuat user tidak sempat memasukkan kode sebelum diganti.
+        const baseDelay = Math.min(8000 * Math.pow(2, pairingAttempts - 1), 60000);
+        const delay = baseDelay + Math.floor(Math.random() * 2000);
+
+        console.log(chalk.yellow(`⚠️  ${tag} Pairing gagal (statusCode ${statusCode}, alasan: ${reasonText || "Connection Failure"}) — mencoba lagi otomatis dengan kode baru dalam ${Math.round(delay / 1000)}s (percobaan ke-${pairingAttempts}/${MAX_PAIRING_RETRIES})...`));
 
         const retryTimer = setTimeout(() => {
           reconnectTimers.delete(botId);
@@ -317,7 +323,7 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
               console.error(chalk.red(`${tag} Pairing retry error:`), err.message);
             });
           }
-        }, 3000 + Math.floor(Math.random() * 2000));
+        }, delay);
         reconnectTimers.set(botId, retryTimer);
         return;
       }

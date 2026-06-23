@@ -99,7 +99,16 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
     if (activeBots.length > 0) {
       console.log(chalk.green.bold(`\n🎁  Menjalankan ${activeBots.length} WhatsApp Business CS Bot`));
       for (const bot of activeBots) {
-        await startWhatsApp(dashboardApp, { id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id });
+        // Reconnect dari sesi yang tersimpan — TIDAK perlu pair ulang. Kalau
+        // satu bot gagal start, jangan sampai menghentikan bot lain.
+        try {
+          await startWhatsApp(dashboardApp, { id: bot.id, name: bot.name, phone: bot.phone, owner_id: bot.owner_id });
+        } catch (err) {
+          console.error(chalk.red.bold(`⚠️  Gagal memulai bot ${bot.name}:`), err.message || err);
+        }
+        // Beri jeda antar-bot supaya tidak ada banyak handshake WhatsApp
+        // serentak saat startup (bisa memicu pembatasan dari sisi WhatsApp/IP).
+        await new Promise((r) => setTimeout(r, 1500));
       }
     } else {
       console.log(chalk.yellow.bold("\n⚠️  Tidak ada bot yang sudah ter-pair. Tambahkan bot via Dashboard."));
