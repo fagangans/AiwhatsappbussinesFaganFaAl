@@ -245,7 +245,18 @@ export default async (lenwy, m, meta) => {
   const msg = m.messages[0];
   if (!msg.message) return;
 
-  const replyJid = msg.key.remoteJid;
+  // WhatsApp kadang mengirim pesan personal (bukan grup) dengan remoteJid
+  // berupa alamat "@lid" (Linked ID) — fitur privasi baru WhatsApp, bukan
+  // nomor telepon. Baileys (versi rc ini) kadang gagal kirim balasan ke
+  // alamat @lid: sendMessage() tidak melempar error (jadi tercatat sukses
+  // di log), tapi pesannya tidak benar-benar sampai ke HP customer. Kalau
+  // WhatsApp menyertakan alamat nomor telepon yang setara untuk chat yang
+  // sama (remoteJidAlt), pakai itu sebagai tujuan balasan — jalur kirim ke
+  // nomor telepon jauh lebih stabil daripada jalur @lid yang masih baru.
+  let replyJid = msg.key.remoteJid;
+  if (replyJid?.endsWith("@lid") && msg.key.remoteJidAlt) {
+    replyJid = msg.key.remoteJidAlt;
+  }
 
   if (!schedulerStarted.has(botId || "default")) {
     schedulerStarted.add(botId || "default");
