@@ -58,6 +58,21 @@ const aiInFlight = new Set();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Foto produk diupload lewat dashboard dan disimpan di DB sebagai path relatif
+// (mis. "/uploads/abc.jpg") — itu cocok untuk <img src> di browser, tapi
+// Baileys memperlakukan url yang TIDAK diawali http(s):// sebagai path file
+// lokal di disk (lihat getStream() di messages-media.js: createReadStream).
+// Tanpa konversi ini, Baileys mencari file di "/uploads/abc.jpg" (root
+// filesystem) yang tidak ada, gagal, lalu fallback diam-diam ke teks saja —
+// makanya foto produk tidak pernah terkirim. URL eksternal (http/https/data:)
+// dibiarkan apa adanya.
+function resolveProductImageUrl(url) {
+  if (typeof url === "string" && url.startsWith("/uploads/")) {
+    return path.join(__dirname, "../dashboard", url);
+  }
+  return url;
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Sentiment Detection
@@ -454,7 +469,7 @@ export default async (lenwy, m, meta) => {
           if (!flowResult) return;
           if (flowResult.imageUrl && canSendMedia(botId, normalizedSender)) {
             try {
-              await replySend(lenwy, replyJid, { image: { url: flowResult.imageUrl }, caption: flowResult.text }, { quoted: len }, botId || "default");
+              await replySend(lenwy, replyJid, { image: { url: resolveProductImageUrl(flowResult.imageUrl) }, caption: flowResult.text }, { quoted: len }, botId || "default");
               recordMediaSent(botId, normalizedSender);
             } catch (_) { await lenwyreply(flowResult.text); }
           } else {
@@ -498,7 +513,7 @@ export default async (lenwy, m, meta) => {
             let primarySent = false;
             if (p.image_url && canSendMedia(botId, normalizedSender)) {
               try {
-                await replySend(lenwy, replyJid, { image: { url: p.image_url }, caption }, { quoted: len }, botId || "default");
+                await replySend(lenwy, replyJid, { image: { url: resolveProductImageUrl(p.image_url) }, caption }, { quoted: len }, botId || "default");
                 recordMediaSent(botId, normalizedSender);
                 primarySent = true;
               } catch (_) {
@@ -514,7 +529,7 @@ export default async (lenwy, m, meta) => {
                 if (!canSendMedia(botId, normalizedSender)) { mediaCapHit = true; break; }
                 await delay(900);
                 try {
-                  await replySend(lenwy, replyJid, { image: { url: img.image_url } }, { quoted: len }, botId || "default");
+                  await replySend(lenwy, replyJid, { image: { url: resolveProductImageUrl(img.image_url) } }, { quoted: len }, botId || "default");
                   recordMediaSent(botId, normalizedSender);
                 } catch (_) {}
               }
