@@ -169,7 +169,16 @@ async function getWaVersion() {
 async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   const botId = botConfig.id;
   const botName = botConfig.name;
-  const usePairingCode = botConfig.method !== "qr";
+  // Tentukan mode koneksi:
+  // - method "qr"        → mode QR
+  // - method lain        → mode pairing code
+  // - method tidak diset (mis. auto-start dari LenwySet yang tak menyimpan
+  //   'method' di DB) → simpulkan dari nomor: ADA nomor = pairing code,
+  //   TANPA nomor = QR. Ini mencegah bot QR ter-auto-start sebagai pairing lalu
+  //   menggantung di prompt nomor saat startup non-interaktif (PM2).
+  const usePairingCode = botConfig.method
+    ? botConfig.method !== "qr"
+    : !!botConfig.phone;
   const sessionPath = path.resolve(__dirname, "../sessions", botId);
   const tag = `[${botName}]`;
 
@@ -186,14 +195,53 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
     try { staleSock.end(new Error("Membuat ulang koneksi, menutup socket lama")); } catch {}
   }
 
-  let lenwy, saveCreds;
+  let lenwy, saveCreds, pairingPhoneNumber = null;
   try {
     if (!fs.existsSync(sessionPath)) {
       fs.mkdirSync(sessionPath, { recursive: true });
     }
 
-    const authState = await useMultiFileAuthState(sessionPath);
+    let authState = await useMultiFileAuthState(sessionPath);
+
+    // === FIX AKAR MASALAH PAIRING CODE / QR ===
+    // requestPairingCode() mengisi creds.me lalu menyimpannya ke creds.json.
+    // Saat handshake, Baileys mengirim LOGIN node bila creds.me terisi, atau
+    // REGISTRATION node bila kosong (cek di validateConnection, berlaku untuk
+    // SEMUA mode — pairing maupun QR). Sesi "setengah-jadi" (creds.me sudah
+    // terisi dari percobaan pairing sebelumnya yang gagal, tapi registered masih
+    // false) membuat handshake mengirim LOGIN node → server WhatsApp menolak
+    // dengan 401 "Connection Failure" di SETIAP percobaan berikutnya. Inilah
+    // sebab pairing selalu gagal walau nomor sudah didiamkan semalaman. (QR yang
+    // user-nya pakai dari sesi bersih tetap bisa, karena tak menyentuh creds.me.)
+    // Solusi: untuk SETIAP connect-baru (bukan reconnect) atas sesi yang belum
+    // registered tapi creds.me-nya terisi, reset sesi agar mulai dari kondisi
+    // bersih (creds.me kosong → REGISTRATION node yang benar).
+    if (
+      !isReconnect &&
+      !authState.state.creds.registered &&
+      authState.state.creds.me
+    ) {
+      console.log(chalk.yellow(`♻️  ${tag} Sesi setengah-jadi terdeteksi — mereset sesi agar pairing/QR dimulai bersih.`));
+      try { fs.rmSync(sessionPath, { recursive: true, force: true }); } catch {}
+      fs.mkdirSync(sessionPath, { recursive: true });
+      authState = await useMultiFileAuthState(sessionPath);
+    }
     saveCreds = authState.saveCreds;
+
+    // Siapkan nomor untuk pairing SEBELUM socket dibuat, supaya saat sinyal
+    // siap-registrasi muncul kita bisa langsung minta kode tanpa menunda.
+    if (usePairingCode && !isReconnect && !authState.state.creds.registered) {
+      if (botConfig.phone) {
+        pairingPhoneNumber = String(botConfig.phone);
+      } else if (process.stdin.isTTY) {
+        // Hanya prompt interaktif kalau benar-benar ada terminal. Di PM2/systemd
+        // tidak ada TTY — question() akan menggantung selamanya & membekukan
+        // loop startup, jadi lewati saja (pairing dijalankan via dashboard).
+        pairingPhoneNumber = await question(`☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`);
+      } else {
+        console.log(chalk.yellow(`⚠️  ${tag} Mode pairing tapi nomor kosong & tidak ada input interaktif — lewati. Lakukan pairing/QR via dashboard.`));
+      }
+    }
 
     const { version, isLatest } = await getWaVersion();
     if (!isReconnect) {
@@ -233,13 +281,63 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
   // connection/QR events are missed during the delay.
   lenwy.ev.on("creds.update", saveCreds);
 
+  // Minta kode pairing TEPAT saat server WhatsApp siap menerima registrasi.
+  // Baileys memancarkan connection.update {qr} setelah server mengirim
+  // 'pair-device' — artinya REGISTRATION node sudah terkirim & handshake selesai.
+  // Memanggil requestPairingCode pada momen ini (bukan dengan jeda tetap yang
+  // rawan race) menjamin urutan benar: registration dulu, baru companion_hello —
+  // sehingga creds.me tidak pernah mendahului handshake (yang akan memicu LOGIN
+  // node + 401). Dijaga agar hanya diminta sekali per umur socket.
+  let pairingCodeRequested = false;
+  const requestPairingCodeOnce = async () => {
+    if (pairingCodeRequested) return;
+    pairingCodeRequested = true;
+    try {
+      const code = await lenwy.requestPairingCode(pairingPhoneNumber.trim());
+      console.log(`🎁 ${tag} Pairing Code : ${code}`);
+      latestPairingCode.set(botId, code);
+      connectErrors.delete(botId);
+      if (typeof botConfig.onPairingCode === "function") {
+        botConfig.onPairingCode(code);
+      }
+    } catch (err) {
+      const errStatus = err?.output?.statusCode;
+      const isTransient =
+        errStatus === DisconnectReason.connectionClosed ||
+        errStatus === DisconnectReason.connectionLost ||
+        errStatus === DisconnectReason.timedOut ||
+        /connection closed|timed out|connection lost/i.test(err?.message || "");
+
+      // Kegagalan transien (428/408 dll): JANGAN laporkan sebagai fatal —
+      // handler "close" akan mendeteksinya sebagai isPairingFailure lalu retry
+      // (dengan sesi yang sudah direset bersih). Melapor onPairingError di sini
+      // membuat dashboard menghapus bot & membatalkan auto-retry.
+      if (isTransient) {
+        console.log(chalk.yellow(`⏳  ${tag} Gagal minta kode pairing sementara (${errStatus || "connection closed"}) — akan dicoba ulang otomatis...`));
+      } else {
+        console.error(`${tag} Failed to get pairing code:`, err);
+        if (typeof botConfig.onPairingError === "function") {
+          botConfig.onPairingError(err);
+        }
+      }
+    }
+  };
+
   lenwy.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    // Mode QR: Baileys emit string QR baru tiap kali kode lama kedaluwarsa
-    if (qr && !usePairingCode) {
-      latestQr.set(botId, qr);
-      connectErrors.delete(botId);
+    if (qr) {
+      if (usePairingCode) {
+        // Mode pairing code: pakai munculnya 'qr' sebagai sinyal siap-registrasi;
+        // string QR-nya sendiri tidak dipakai/ditampilkan.
+        if (!isReconnect && pairingPhoneNumber && !lenwy.authState.creds.registered) {
+          requestPairingCodeOnce();
+        }
+      } else {
+        // Mode QR: simpan string QR baru untuk ditampilkan/polling dashboard.
+        latestQr.set(botId, qr);
+        connectErrors.delete(botId);
+      }
     }
 
     if (connection === "close") {
@@ -269,11 +367,20 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       // status registrasi & teks alasannya juga.
       const isAlreadyRegistered = !!lenwy.authState?.creds?.registered;
       const isStreamConflict = statusCode === DisconnectReason.loggedOut && /conflict/i.test(reasonText);
-      const isPairingFailure = (statusCode === DisconnectReason.loggedOut && !isStreamConflict && !isAlreadyRegistered)
-        || (statusCode === DisconnectReason.connectionClosed && !isAlreadyRegistered);
       const isLoggedOut = statusCode === DisconnectReason.loggedOut && !isStreamConflict && isAlreadyRegistered;
       const isBadSession = statusCode === DisconnectReason.badSession;
       const isReplaced = statusCode === DisconnectReason.connectionReplaced;
+      // Selama sesi BELUM pernah 'registered', koneksi yang tertutup berarti
+      // proses pairing belum tuntas (kode kelewat waktu, handshake ditutup
+      // server, dll) — apa pun status code-nya. Recovery yang benar BUKAN
+      // reconnect biasa (itu malah memuat creds.me beracun → LOGIN node → 401),
+      // melainkan mulai ulang pairing dari sesi BERSIH dengan kode baru.
+      // Pengecualian: badSession (sesi korup, ditangani terpisah), replaced, dan
+      // restartRequired (515) — yang TERAKHIR adalah sinyal NORMAL tepat setelah
+      // pairing BERHASIL ("server minta restart"); ini harus reconnect biasa
+      // (login node), JANGAN direset, supaya sesi yang baru ter-pair tak hilang.
+      const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+      const isPairingFailure = !isAlreadyRegistered && !isStreamConflict && !isBadSession && !isReplaced && !isRestartRequired;
 
       if (isLoggedOut || isBadSession) {
         console.log(chalk.red(`❌  ${tag} Bot logged out / sesi rusak — perlu pair ulang (statusCode: ${statusCode}, alasan: ${reasonText || "tidak diketahui"})`));
@@ -299,20 +406,21 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
         pairingRetryAttempts.set(botId, pairingAttempts);
 
         if (pairingAttempts > MAX_PAIRING_RETRIES) {
-          console.log(chalk.red(`❌  ${tag} Gagal pairing setelah ${pairingAttempts - 1} percobaan otomatis (statusCode ${statusCode}, alasan: ${reasonText || "Connection Failure"}) — berhenti.\n   Kemungkinan besar nomor ini sedang DIBATASI SEMENTARA oleh WhatsApp karena terlalu sering minta kode pairing dalam waktu singkat.\n   Solusi: diamkan nomor ini 1-2 jam, pastikan WhatsApp di HP aktif & sinyal bagus, lalu minta kode pairing baru lewat dashboard dan SEGERA masukkan kodenya.`));
+          console.log(chalk.red(`❌  ${tag} Gagal pairing setelah ${pairingAttempts - 1} percobaan otomatis (statusCode ${statusCode}, alasan: ${reasonText || "Connection Failure"}) — berhenti.\n   Pastikan: (1) nomor ${botConfig.phone || ""} benar & diawali kode negara (mis. 62), (2) WhatsApp di HP aktif, ada internet/sinyal bagus, (3) kode dimasukkan SEGERA setelah muncul (Tautkan Perangkat → Tautkan dengan nomor telepon).\n   Minta kode baru lewat dashboard saat HP sudah siap, lalu masukkan kodenya secepatnya.`));
           activeSessions.delete(botId);
           pairingRetryAttempts.delete(botId);
           latestPairingCode.delete(botId);
           return;
         }
 
-        // Backoff bertingkat (8s, 16s, 32s, lalu 60s) — JANGAN retry terlalu
-        // cepat. Retry beruntun tiap beberapa detik justru memicu rate-limit
-        // WhatsApp & membuat user tidak sempat memasukkan kode sebelum diganti.
+        // Backoff bertingkat (8s, 16s, 32s, lalu 60s) memberi user waktu cukup
+        // memasukkan kode sebelum socket diperbarui. Tiap retry memulai sesi
+        // BERSIH (creds.me beracun sudah di-reset di awal connectToWhatsApp),
+        // jadi handshake selalu mengirim REGISTRATION node yang benar.
         const baseDelay = Math.min(8000 * Math.pow(2, pairingAttempts - 1), 60000);
         const delay = baseDelay + Math.floor(Math.random() * 2000);
 
-        console.log(chalk.yellow(`⚠️  ${tag} Pairing gagal (statusCode ${statusCode}, alasan: ${reasonText || "Connection Failure"}) — mencoba lagi otomatis dengan kode baru dalam ${Math.round(delay / 1000)}s (percobaan ke-${pairingAttempts}/${MAX_PAIRING_RETRIES})...`));
+        console.log(chalk.yellow(`⚠️  ${tag} Pairing belum selesai (statusCode ${statusCode}, alasan: ${reasonText || "Connection Failure"}) — reset sesi & siapkan ${usePairingCode ? "kode" : "QR"} baru dalam ${Math.round(delay / 1000)}s (percobaan ke-${pairingAttempts}/${MAX_PAIRING_RETRIES})...`));
 
         const retryTimer = setTimeout(() => {
           reconnectTimers.delete(botId);
@@ -418,55 +526,6 @@ async function connectToWhatsApp(dashboardApp, botConfig, isReconnect = false) {
       }
     }
   });
-
-  // Handle Pairing — only on first connect, NEVER on reconnect.
-  // Placed AFTER event handlers so connection events are not missed.
-  if (usePairingCode && !lenwy.authState.creds.registered && !isReconnect) {
-    try {
-      let phoneNumber;
-      if (botConfig.phone) {
-        phoneNumber = botConfig.phone;
-      } else {
-        phoneNumber = await question(
-          `☘️ ${tag} Masukan Nomor Yang Diawali Dengan 62 :\n`,
-        );
-      }
-      await lenwy.waitForSocketOpen();
-      // Beri jeda singkat supaya handshake protokol WhatsApp benar-benar
-      // selesai sebelum minta kode. Jangan terlalu lama — socket yang masih
-      // belum ter-autentikasi akan ditutup WhatsApp (428) kalau menganggur
-      // terlalu lama, terutama saat ada bot lain yang sedang sibuk sync.
-      await new Promise((r) => setTimeout(r, 2000));
-      const code = await lenwy.requestPairingCode(phoneNumber.trim());
-      console.log(`🎁 ${tag} Pairing Code : ${code}`);
-      latestPairingCode.set(botId, code);
-      connectErrors.delete(botId);
-      if (typeof botConfig.onPairingCode === "function") {
-        botConfig.onPairingCode(code);
-      }
-    } catch (err) {
-      const errStatus = err?.output?.statusCode;
-      const isTransient =
-        errStatus === DisconnectReason.connectionClosed ||
-        errStatus === DisconnectReason.connectionLost ||
-        errStatus === DisconnectReason.timedOut ||
-        /connection closed|timed out|connection lost/i.test(err?.message || "");
-
-      // Kalau gagal karena koneksi terputus sementara (428/408 dll), JANGAN
-      // laporkan sebagai error fatal — handler "close" di atas akan otomatis
-      // mendeteksinya sebagai isPairingFailure dan retry dengan kode baru.
-      // Melaporkan onPairingError di sini akan membuat dashboard menghapus
-      // bot & membatalkan auto-retry.
-      if (isTransient) {
-        console.log(chalk.yellow(`⏳  ${tag} Gagal minta kode pairing sementara (${errStatus || "connection closed"}) — akan dicoba ulang otomatis...`));
-      } else {
-        console.error(`${tag} Failed to get pairing code:`, err);
-        if (typeof botConfig.onPairingError === "function") {
-          botConfig.onPairingError(err);
-        }
-      }
-    }
-  }
 
   async function handleIncomingMessage(m) {
     const msg = m.messages[0];
