@@ -37,6 +37,26 @@ process.on("uncaughtException", (err) => {
   console.error(chalk.red.bold("⚠️  Uncaught Exception:"), err);
 });
 
+// Cek apakah sebuah sesi sudah benar-benar TERDAFTAR (pairing/QR sudah tuntas).
+// useMultiFileAuthState menyimpan creds.json; field `registered` true berarti
+// device sudah tertaut ke WhatsApp & bisa langsung reconnect (login node).
+// Folder sesi yang ADA tapi registered=false adalah sesi "setengah-jadi" dari
+// percobaan pairing yang BELUM tuntas — JANGAN auto-start saat boot, karena:
+//   (1) tidak ada yang menonton dashboard untuk memasukkan kode → kode pairing
+//       kedaluwarsa percuma (408 "QR refs attempts ended"),
+//   (2) retry berulang saat boot bisa memicu pembatasan nomor oleh WhatsApp.
+// Bot seperti ini harus menunggu user melakukan pairing via dashboard saat siap.
+function isSessionRegistered(sessionPath) {
+  try {
+    const credsPath = path.join(sessionPath, "creds.json");
+    if (!fs.existsSync(credsPath)) return false;
+    const creds = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
+    return !!creds.registered;
+  } catch {
+    return false;
+  }
+}
+
 // Diisi setelah modul WhatsApp/index.js berhasil di-import di bawah, supaya
 // shutdown handler bisa menutup socket dengan rapi tanpa import ulang.
 let closeAllWaSockets = null;
@@ -93,7 +113,7 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
     const dbBots = getAllBots();
     const activeBots = dbBots.filter(b => {
       const sessionPath = path.resolve(__dirname, "sessions", b.id);
-      return b.is_active && fs.existsSync(sessionPath);
+      return b.is_active && isSessionRegistered(sessionPath);
     });
 
     if (activeBots.length > 0) {
