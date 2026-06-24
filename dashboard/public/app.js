@@ -1228,17 +1228,17 @@ async function renderBotManager(el) {
 }
 
 function showAddBot() {
-  addBotMethod = "code";
+  addBotMethod = "qr";
   showModal(`
     <h3 class="text-lg font-bold mb-4"><i class="fas fa-robot mr-2 text-green-500"></i>Tambah Bot WhatsApp</h3>
     <div class="space-y-3">
       <div class="flex gap-2">
-        <button id="addTabCode" onclick="switchAddMethod('code')" class="btn btn-primary text-xs flex-1"><i class="fas fa-keyboard mr-1"></i>Kode Pairing</button>
-        <button id="addTabQr" onclick="switchAddMethod('qr')" class="btn btn-outline text-xs flex-1"><i class="fas fa-qrcode mr-1"></i>Scan QR Code</button>
+        <button id="addTabCode" onclick="switchAddMethod('code')" class="btn btn-outline text-xs flex-1"><i class="fas fa-keyboard mr-1"></i>Kode Pairing</button>
+        <button id="addTabQr" onclick="switchAddMethod('qr')" class="btn btn-primary text-xs flex-1"><i class="fas fa-qrcode mr-1"></i>Scan QR Code</button>
       </div>
       <div><label class="block text-sm font-medium mb-1">Nama Bot *</label><input id="botName" placeholder="Bot Toko Saya"></div>
-      <div id="addPhoneField"><label class="block text-sm font-medium mb-1">Nomor WhatsApp * (awali 62)</label><input id="botPhone" placeholder="628123456789"></div>
-      <p class="text-xs text-gray-400" id="addMethodHint">Masukkan nomor WhatsApp yang ingin dijadikan bot. Setelah klik Mulai, pairing code akan muncul. Masukkan code tersebut di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat.</p>
+      <div id="addPhoneField" class="hidden"><label class="block text-sm font-medium mb-1">Nomor WhatsApp * (awali 62)</label><input id="botPhone" placeholder="628123456789"></div>
+      <p class="text-xs text-gray-400" id="addMethodHint">Klik Mulai untuk menampilkan QR Code, lalu scan lewat WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat.</p>
       <div id="pairingResult" class="hidden">
         <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
           <p class="text-sm text-green-800 mb-2">Pairing Code:</p>
@@ -1343,15 +1343,15 @@ async function startPairing() {
 }
 
 function requestPairingAgain(id, name) {
-  repairBotMethod = "code";
+  repairBotMethod = "qr";
   showModal(`
     <h3 class="text-lg font-bold mb-4"><i class="fas fa-qrcode mr-2 text-green-500"></i>Hubungkan Ulang: ${name}</h3>
     <div class="space-y-3">
       <div class="flex gap-2">
-        <button id="repairTabCode" onclick="switchRepairMethod('${id}','code')" class="btn btn-primary text-xs flex-1"><i class="fas fa-keyboard mr-1"></i>Kode Pairing</button>
-        <button id="repairTabQr" onclick="switchRepairMethod('${id}','qr')" class="btn btn-outline text-xs flex-1"><i class="fas fa-qrcode mr-1"></i>Scan QR Code</button>
+        <button id="repairTabCode" onclick="switchRepairMethod('${id}','code')" class="btn btn-outline text-xs flex-1"><i class="fas fa-keyboard mr-1"></i>Kode Pairing</button>
+        <button id="repairTabQr" onclick="switchRepairMethod('${id}','qr')" class="btn btn-primary text-xs flex-1"><i class="fas fa-qrcode mr-1"></i>Scan QR Code</button>
       </div>
-      <p class="text-xs text-gray-400" id="repairMethodHint">Bot belum/tidak terhubung. Klik tombol di bawah untuk minta kode pairing baru, lalu masukkan di WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat sebelum kode kedaluwarsa.</p>
+      <p class="text-xs text-gray-400" id="repairMethodHint">Klik tombol di bawah untuk menampilkan QR Code, lalu scan lewat WhatsApp &gt; Perangkat Tertaut &gt; Tautkan Perangkat.</p>
       <div id="repairResult" class="hidden">
         <div class="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
           <p class="text-sm text-green-800 mb-2">Pairing Code:</p>
@@ -1374,7 +1374,7 @@ function requestPairingAgain(id, name) {
       </div>
       <div class="flex gap-2 justify-end">
         <button onclick="closeModal()" class="btn btn-outline">Tutup</button>
-        <button onclick="startRepair('${id}')" id="btnStartRepair" class="btn btn-primary"><i class="fas fa-link mr-1"></i>Minta Kode Pairing</button>
+        <button onclick="startRepair('${id}')" id="btnStartRepair" class="btn btn-primary"><i class="fas fa-qrcode mr-1"></i>Tampilkan QR Code</button>
       </div>
     </div>`);
 }

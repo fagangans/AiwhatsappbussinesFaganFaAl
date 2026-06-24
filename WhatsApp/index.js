@@ -48,12 +48,14 @@ const conflictStreaks = new Map();
 const latestPairingCode = new Map();
 const pairingRetryAttempts = new Map();
 
-// 401 "Connection Failure" yang muncul SAAT BELUM pair (kode pairing baru
-// dimasukkan) adalah kegagalan transien yang dikenal umum terjadi di sisi
-// WhatsApp/Baileys, bukan logout asli — jadi dicoba ulang otomatis dengan
-// kode baru, dibatasi supaya tidak retry selamanya kalau memang ada masalah
-// lain (nomor salah, dll).
-const MAX_PAIRING_RETRIES = 5;
+// 401 "Connection Failure" yang muncul SAAT BELUM pair adalah kegagalan di
+// SISI SERVER WhatsApp (server menutup koneksi saat tahap companion_hello),
+// bukan logout asli dan bukan bug di kode ini. Retry otomatis berkali-kali
+// TIDAK menyembuhkan ini — yang ada malah menambah jejak permintaan pairing
+// beruntun dari IP yang sama, yang justru bisa memperburuk peluang sukses
+// berikutnya. Jadi dibatasi 1x percobaan saja, lalu berhenti dengan pesan
+// jelas — minta user coba lagi manual nanti via dashboard kalau sudah siap.
+const MAX_PAIRING_RETRIES = 1;
 
 // QR code mentah (string) terbaru untuk bot yang sedang pairing via QR.
 // Di-render jadi gambar oleh dashboard (lihat dashboard/server.js), bukan di sini.
