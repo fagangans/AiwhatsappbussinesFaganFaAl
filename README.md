@@ -120,6 +120,22 @@ AI_API_KEY=        # isi jika pakai gemini/openai
 
 ---
 
+## 💡 Rekomendasi: WhatsApp Cloud API (Resmi)
+
+Untuk bisnis yang sudah berjalan stabil dan butuh keamanan jangka panjang, sangat direkomendasikan untuk migrasi ke **WhatsApp Cloud API** — API resmi dari Meta:
+
+| | Baileys (bawaan bot ini) | WhatsApp Cloud API (Resmi) |
+|---|---|---|
+| **Biaya** | Gratis | 1000 percakapan/bulan gratis, lalu berbayar |
+| **Risiko Banned** | Ada | Tidak ada |
+| **Koneksi** | Bisa putus, perlu scan QR ulang | Stabil, otomatis |
+| **Legalitas** | Tidak resmi | Resmi dan legal |
+| **Centang Hijau** | Tidak bisa | Bisa diajukan |
+
+> 📖 Panduan lengkap cara daftar dan setup WhatsApp Cloud API tersedia di file **`Panduan-Setup-WhatsApp-Business-CS-Bot.pdf`** yang disertakan bersama paket ini.
+
+---
+
 ## 📄 Lisensi & Credits
 
 Proyek ini didistribusikan oleh **Fagan**, dibangun di atas base **Lenwy SCM** oleh **Lenwy** (wa.me/6283829814737).
