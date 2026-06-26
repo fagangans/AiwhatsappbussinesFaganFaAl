@@ -157,6 +157,7 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
     console.log(
       chalk.white.bold(`${chalk.green.bold("📃  Informasi :")}
 ✉️  WhatsApp Business Customer Service Bot
+✉️  Dikembangkan Oleh : Fagan
 ✉️  Base : Lenwy SCM
 ✉️  Dashboard: http://localhost:${process.env.DASHBOARD_PORT || 3000}
 🎁  Bots: ${activeBots.length} bot aktif (${dbBots.length} total terdaftar)
