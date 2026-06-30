@@ -1,5 +1,7 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import multer from "multer";
@@ -51,7 +53,10 @@ import db, {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const JWT_SECRET = process.env.JWT_SECRET || "bisnis-wa-dashboard-secret-key-2024";
+const JWT_SECRET = process.env.JWT_SECRET || (() => {
+  console.warn("\n\x1b[31m[SECURITY] JWT_SECRET tidak diset di .env! Menggunakan secret sementara — WAJIB ganti sebelum produksi.\x1b[0m\n");
+  return "bisnis-wa-dashboard-secret-key-2024-PLEASE-CHANGE-THIS";
+})();
 
 const upload = multer({
   dest: path.join(__dirname, "uploads"),
@@ -106,9 +111,72 @@ function getViewContext(req) {
   return { ownerId: getOwnerId(req), botId: req.query.botId || null, readOnly: req.user.role !== "admin" };
 }
 
+// Pelacak lockout login: username -> { count, lockedUntil }
+const loginFailures = new Map();
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000; // 15 menit
+
+function checkLoginLockout(username) {
+  const entry = loginFailures.get(username);
+  if (!entry) return false;
+  if (entry.lockedUntil && Date.now() < entry.lockedUntil) return true;
+  if (entry.lockedUntil && Date.now() >= entry.lockedUntil) {
+    loginFailures.delete(username);
+    return false;
+  }
+  return false;
+}
+
+function recordLoginFailure(username) {
+  const entry = loginFailures.get(username) || { count: 0, lockedUntil: null };
+  entry.count += 1;
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+    entry.lockedUntil = Date.now() + LOGIN_LOCK_MS;
+  }
+  loginFailures.set(username, entry);
+}
+
+function resetLoginFailures(username) {
+  loginFailures.delete(username);
+}
+
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Terlalu banyak percobaan login, coba lagi 15 menit kemudian." },
+});
+
 export default function startDashboard() {
   const app = express();
-  app.use(cors());
+
+  const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim())
+    : null;
+  app.use(cors({
+    origin: (origin, cb) => {
+      if (!origin || !allowedOrigins) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error("CORS: origin tidak diizinkan"));
+    },
+    credentials: true,
+  }));
+
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://cdnjs.cloudflare.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://cdnjs.cloudflare.com"],
+        fontSrc: ["'self'", "https://cdnjs.cloudflare.com", "data:"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        connectSrc: ["'self'", "ws:", "wss:"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }));
+
   app.use(express.json());
   app.use(express.static(path.join(__dirname, "public")));
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -136,17 +204,25 @@ export default function startDashboard() {
   if (!dashboardUserExists()) {
     const hash = bcrypt.hashSync("admin123", 10);
     createDashboardUser("admin", hash, "Administrator", "admin");
-    console.log("[Dashboard] Default user created: admin / admin123");
+    console.warn("\x1b[33m[Dashboard] Akun default dibuat. SEGERA ganti password 'admin123' setelah login pertama!\x1b[0m");
   }
 
   // ===== AUTH =====
-  app.post("/api/login", (req, res) => {
+  app.post("/api/login", loginRateLimiter, (req, res) => {
     const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username dan password wajib diisi" });
+    }
+    if (checkLoginLockout(username)) {
+      return res.status(429).json({ error: "Akun dikunci sementara karena terlalu banyak percobaan gagal. Coba lagi 15 menit kemudian." });
+    }
     const user = getDashboardUser(username);
     if (!user || !bcrypt.compareSync(password, user.password)) {
+      recordLoginFailure(username);
       return res.status(401).json({ error: "Username atau password salah" });
     }
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: "7d" });
+    resetLoginFailures(username);
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: "2h" });
     res.json({ token, user: { id: user.id, username: user.username, name: user.name, role: user.role } });
   });
 
@@ -156,8 +232,8 @@ export default function startDashboard() {
 
   app.put("/api/me/password", auth, (req, res) => {
     const { currentPassword, newPassword } = req.body;
-    if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: "Password baru minimal 6 karakter" });
+    if (!newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: "Password baru minimal 8 karakter" });
     }
     const user = getDashboardUser(req.user.username);
     if (!user || !bcrypt.compareSync(currentPassword || "", user.password)) {
@@ -175,7 +251,7 @@ export default function startDashboard() {
   app.post("/api/clients", auth, adminOnly, (req, res) => {
     const { username, password, name } = req.body;
     if (!username || !password || !name) return res.status(400).json({ error: "Username, password, dan nama wajib diisi" });
-    if (password.length < 6) return res.status(400).json({ error: "Password minimal 6 karakter" });
+    if (password.length < 8) return res.status(400).json({ error: "Password minimal 8 karakter" });
     const existing = getDashboardUser(username);
     if (existing) return res.status(400).json({ error: "Username sudah dipakai" });
     const hash = bcrypt.hashSync(password, 10);
@@ -189,7 +265,7 @@ export default function startDashboard() {
     const user = getDashboardUserById(id);
     if (!user) return res.status(404).json({ error: "User tidak ditemukan" });
     if (req.body.password) {
-      if (req.body.password.length < 6) return res.status(400).json({ error: "Password minimal 6 karakter" });
+      if (req.body.password.length < 8) return res.status(400).json({ error: "Password minimal 8 karakter" });
       updateDashboardPassword(user.username, bcrypt.hashSync(req.body.password, 10));
     }
     if (req.body.name) {
@@ -595,15 +671,27 @@ export default function startDashboard() {
     res.json({ success: true });
   });
 
+  function checkCustomerOwner(req, res) {
+    const row = db.prepare("SELECT owner_id FROM customers WHERE id = ?").get(parseInt(req.params.id));
+    if (!row) { res.status(404).json({ error: "Customer tidak ditemukan" }); return false; }
+    if (req.user.role !== "admin" && row.owner_id !== req.user.id) {
+      res.status(403).json({ error: "Akses ditolak" }); return false;
+    }
+    return true;
+  }
+
   app.get("/api/customers/:id/orders", auth, (req, res) => {
+    if (!checkCustomerOwner(req, res)) return;
     res.json(getCustomerOrders(parseInt(req.params.id)));
   });
 
   app.get("/api/customers/:id/tickets", auth, (req, res) => {
+    if (!checkCustomerOwner(req, res)) return;
     res.json(getCustomerTickets(parseInt(req.params.id)));
   });
 
   app.get("/api/customers/:id/messages", auth, (req, res) => {
+    if (!checkCustomerOwner(req, res)) return;
     res.json(getMessageLogs(parseInt(req.params.id), parseInt(req.query.limit) || 50));
   });
 
@@ -1300,8 +1388,16 @@ export default function startDashboard() {
   });
 
   const wss = new WebSocketServer({ server });
-  wss.on("connection", (ws) => {
-    ws.send(JSON.stringify({ type: "connected" }));
+  wss.on("connection", (ws, req) => {
+    try {
+      const url = new URL(req.url, "http://localhost");
+      const token = url.searchParams.get("token");
+      if (!token) { ws.close(4001, "Token diperlukan"); return; }
+      jwt.verify(token, JWT_SECRET);
+      ws.send(JSON.stringify({ type: "connected" }));
+    } catch {
+      ws.close(4001, "Token tidak valid");
+    }
   });
 
   app.broadcast = (data) => {

@@ -1,4 +1,16 @@
 const API = "";
+
+// XSS prevention: escape semua string dari server sebelum dimasukkan ke innerHTML
+function esc(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
 let token = localStorage.getItem("token");
 let currentPage = "dashboard";
 let selectedBotId = localStorage.getItem("selectedBotId") || "";
@@ -75,7 +87,7 @@ async function loadMyBotAccess() {
   if (!myBotAccess.length) { wrap.classList.add("hidden"); return; }
   wrap.classList.remove("hidden");
   const sel = document.getElementById("viewSwitcher");
-  sel.innerHTML = `<option value="">Data Saya</option>` + myBotAccess.map(b => `<option value="${b.bot_id}" ${b.bot_id === viewBotId ? "selected" : ""}>${b.bot_name} (Read-Only)</option>`).join("");
+  sel.innerHTML = `<option value="">Data Saya</option>` + myBotAccess.map(b => `<option value="${esc(b.bot_id)}" ${b.bot_id === viewBotId ? "selected" : ""}>${esc(b.bot_name)} (Read-Only)</option>`).join("");
   applyViewMode();
 }
 
@@ -107,7 +119,7 @@ async function loadBots() {
     if (!sel) return;
     sel.innerHTML = connectedBots.length === 0
       ? '<option value="">Tidak ada bot</option>'
-      : connectedBots.map(b => `<option value="${b.id}" ${b.id === selectedBotId ? "selected" : ""}>${b.name} (${b.connected ? "Online" : "Offline"})</option>`).join("");
+      : connectedBots.map(b => `<option value="${esc(b.id)}" ${b.id === selectedBotId ? "selected" : ""}>${esc(b.name)} (${b.connected ? "Online" : "Offline"})</option>`).join("");
     if (connectedBots.length > 0 && !connectedBots.find(b => b.id === selectedBotId)) {
       selectedBotId = connectedBots[0].id;
       localStorage.setItem("selectedBotId", selectedBotId);
@@ -283,7 +295,8 @@ function showDashboard() {
   updateImportantBadge();
   setInterval(loadBots, 15000);
   setInterval(updateImportantBadge, 30000);
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`);
+  const wsToken = localStorage.getItem("token") || "";
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}?token=${encodeURIComponent(wsToken)}`);
   ws.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
@@ -496,13 +509,13 @@ let searchProductTimer;
 function searchProductDebounce() { clearTimeout(searchProductTimer); searchProductTimer = setTimeout(async () => {
   const q = document.getElementById("productSearch").value;
   const products = q ? await api(`/api/products?search=${encodeURIComponent(q)}`) : await api("/api/products");
-  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${p.sku||"-"}</td><td class="font-medium">${p.name}</td><td>${p.category}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td></tr>`).join("");
+  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${esc(p.sku)||"-"}</td><td class="font-medium">${esc(p.name)}</td><td>${esc(p.category)}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},${JSON.stringify(String(p.name||''))})" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td></tr>`).join("");
 }, 300); }
 
 async function filterProductsCat() {
   const cat = document.getElementById("productCatFilter").value;
   const products = cat ? await api(`/api/products?category=${encodeURIComponent(cat)}`) : await api("/api/products");
-  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${p.sku||"-"}</td><td class="font-medium">${p.name}</td><td>${p.category}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},'${p.name}')" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td></tr>`).join("");
+  document.getElementById("productsTable").innerHTML = products.map(p => `<tr><td class="font-mono text-xs">${esc(p.sku)||"-"}</td><td class="font-medium">${esc(p.name)}</td><td>${esc(p.category)}</td><td>${formatCurrency(p.price)}</td><td>${p.discount_price>0?formatCurrency(p.discount_price):"-"}</td><td><span class="${p.stock<=0?"text-red-500 font-bold":p.stock<=5?"text-yellow-500 font-bold":"text-green-600"}">${p.stock}</span></td><td class="space-x-1"><button onclick="editProduct(${p.id})" class="btn btn-outline text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button><button onclick="delProduct(${p.id},${JSON.stringify(String(p.name||''))})" class="btn btn-danger text-xs py-1 px-2 write-action"><i class="fas fa-trash"></i></button></td></tr>`).join("");
 }
 
 async function showAddProduct() {
@@ -620,7 +633,7 @@ async function renderOrders(el) {
     </div>`;
 }
 
-async function filterOrders() { const s = document.getElementById("orderFilter").value; const orders = await api(`/api/orders${s?"?status="+s:""}`); document.getElementById("ordersTable").innerHTML = orders.map(o => `<tr><td class="font-mono text-xs font-medium">${o.order_number}</td><td>${o.customer_name}</td><td class="font-medium">${formatCurrency(o.total)}</td><td>${statusBadge(o.status)}</td><td>${statusBadge(o.payment_status)}</td><td class="text-xs text-gray-500">${formatDate(o.created_at)}</td><td class="space-x-1"><button onclick="viewOrder('${o.order_number}')" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button><button onclick="changeOrderStatus('${o.order_number}','${o.status}')" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button>${o.payment_status!=="paid"?`<button onclick="confirmPay('${o.order_number}')" class="btn btn-success text-xs py-1 px-2 write-action"><i class="fas fa-check"></i></button>`:""}</td></tr>`).join(""); }
+async function filterOrders() { const s = document.getElementById("orderFilter").value; const orders = await api(`/api/orders${s?"?status="+s:""}`); document.getElementById("ordersTable").innerHTML = orders.map(o => `<tr><td class="font-mono text-xs font-medium">${esc(o.order_number)}</td><td>${esc(o.customer_name)}</td><td class="font-medium">${formatCurrency(o.total)}</td><td>${statusBadge(o.status)}</td><td>${statusBadge(o.payment_status)}</td><td class="text-xs text-gray-500">${formatDate(o.created_at)}</td><td class="space-x-1"><button onclick="viewOrder(${JSON.stringify(String(o.order_number||''))})" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button><button onclick="changeOrderStatus(${JSON.stringify(String(o.order_number||''))},${JSON.stringify(String(o.status||''))})" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button>${o.payment_status!=="paid"?`<button onclick="confirmPay(${JSON.stringify(String(o.order_number||''))})" class="btn btn-success text-xs py-1 px-2 write-action"><i class="fas fa-check"></i></button>`:""}</td></tr>`).join(""); }
 
 async function viewOrder(num) {
   const o = await api(`/api/orders/${num}`);
@@ -691,7 +704,7 @@ async function renderCustomers(el) {
 }
 
 let custSearchTimer;
-function searchCustDebounce() { clearTimeout(custSearchTimer); custSearchTimer = setTimeout(async () => { const q = document.getElementById("custSearch").value; const customers = q ? await api(`/api/customers?search=${encodeURIComponent(q)}`) : await api("/api/customers"); document.getElementById("custTable").innerHTML = customers.map(c => { const tags = JSON.parse(c.tags||"[]"); return `<tr><td class="font-medium">${c.name||"Tanpa Nama"}</td><td class="font-mono text-xs">${c.phone}</td><td>${tags.map(t=>`<span class="badge badge-blue">${t}</span>`).join(" ")}</td><td>${c.total_orders}</td><td>${formatCurrency(c.total_spent)}</td><td>${c.satisfaction_avg?c.satisfaction_avg.toFixed(1)+"⭐":"-"}</td><td class="text-xs text-gray-500">${formatDate(c.last_contact)}</td><td><button onclick="viewCustomer(${c.id},'${c.jid}')" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button></td></tr>`; }).join(""); }, 300); }
+function searchCustDebounce() { clearTimeout(custSearchTimer); custSearchTimer = setTimeout(async () => { const q = document.getElementById("custSearch").value; const customers = q ? await api(`/api/customers?search=${encodeURIComponent(q)}`) : await api("/api/customers"); document.getElementById("custTable").innerHTML = customers.map(c => { const tags = JSON.parse(c.tags||"[]"); return `<tr><td class="font-medium">${c.name ? esc(c.name) : "Tanpa Nama"}</td><td class="font-mono text-xs">${esc(c.phone)}</td><td>${tags.map(t=>`<span class="badge badge-blue">${esc(t)}</span>`).join(" ")}</td><td>${c.total_orders}</td><td>${formatCurrency(c.total_spent)}</td><td>${c.satisfaction_avg?c.satisfaction_avg.toFixed(1)+"⭐":"-"}</td><td class="text-xs text-gray-500">${formatDate(c.last_contact)}</td><td><button onclick="viewCustomer(${c.id},${JSON.stringify(String(c.jid||''))})" class="btn btn-outline text-xs py-1 px-2"><i class="fas fa-eye"></i></button></td></tr>`; }).join(""); }, 300); }
 
 async function viewCustomer(id, jid) {
   const c = await api(`/api/customers/${jid}`);
@@ -752,7 +765,7 @@ async function renderTickets(el) {
     </div>`;
 }
 
-async function filterTickets() { const s = document.getElementById("ticketFilter").value; const tickets = await api(`/api/tickets${s?"?status="+s:""}`); document.getElementById("ticketsTable").innerHTML = tickets.map(t=>`<tr><td class="font-mono text-xs">${t.ticket_number}</td><td>${t.customer_name}</td><td class="font-medium">${t.subject}</td><td><span class="badge ${t.priority==="urgent"?"badge-red":t.priority==="high"?"badge-yellow":"badge-gray"}">${t.priority}</span></td><td>${statusBadge(t.status)}</td><td class="text-xs text-gray-500">${formatDate(t.created_at)}</td><td><button onclick="updateTicket('${t.ticket_number}','${t.status}')" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button></td></tr>`).join(""); }
+async function filterTickets() { const s = document.getElementById("ticketFilter").value; const tickets = await api(`/api/tickets${s?"?status="+s:""}`); document.getElementById("ticketsTable").innerHTML = tickets.map(t=>`<tr><td class="font-mono text-xs">${esc(t.ticket_number)}</td><td>${esc(t.customer_name)}</td><td class="font-medium">${esc(t.subject)}</td><td><span class="badge ${t.priority==="urgent"?"badge-red":t.priority==="high"?"badge-yellow":"badge-gray"}">${esc(t.priority)}</span></td><td>${statusBadge(t.status)}</td><td class="text-xs text-gray-500">${formatDate(t.created_at)}</td><td><button onclick="updateTicket(${JSON.stringify(String(t.ticket_number||''))},${JSON.stringify(String(t.status||''))})" class="btn btn-primary text-xs py-1 px-2 write-action"><i class="fas fa-edit"></i></button></td></tr>`).join(""); }
 
 function updateTicket(num, current) {
   showModal(`
