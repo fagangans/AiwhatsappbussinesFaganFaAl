@@ -3,43 +3,138 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Business Dashboard - WhatsApp CS</title>
+  <title>FaganFAiAgent — Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: #f0f2f5; }
+
+    /* ─── Typography ─── */
+    body {
+      font-family: 'Poppins', sans-serif;
+      font-size: 14px;
+      background: #fafafa;
+      color: #1a1a1a;
+    }
+
+    /* ─── Sidebar ─── */
     .sidebar { transition: transform 0.3s ease; }
-    .sidebar-link { transition: all 0.2s; }
-    .sidebar-link:hover, .sidebar-link.active { background: rgba(255,255,255,0.1); border-radius: 8px; }
-    .card { background: white; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    .stat-card { transition: transform 0.2s; }
-    .stat-card:hover { transform: translateY(-2px); }
-    .modal-overlay { background: rgba(0,0,0,0.5); }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
-    .badge-green { background: #dcfce7; color: #166534; }
-    .badge-yellow { background: #fef3c7; color: #92400e; }
-    .badge-red { background: #fecaca; color: #991b1b; }
-    .badge-blue { background: #dbeafe; color: #1e40af; }
-    .badge-gray { background: #f3f4f6; color: #374151; }
+    .sidebar-link {
+      transition: all 0.15s ease;
+      border-radius: 10px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.75);
+    }
+    .sidebar-link:hover {
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+    }
+    .sidebar-link.active {
+      background: #fff;
+      color: #ea580c !important;
+      font-weight: 600;
+    }
+    .sidebar-link.active i { color: #ea580c !important; }
+
+    /* ─── Cards ─── */
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      border: 1px solid #f0f0f0;
+    }
+    .stat-card { transition: transform 0.2s, box-shadow 0.2s; }
+    .stat-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(234,88,12,0.12);
+    }
+
+    /* ─── Badges ─── */
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; }
+    .badge-green { background: #dcfce7; color: #15803d; }
+    .badge-yellow { background: #fef3c7; color: #b45309; }
+    .badge-red { background: #fee2e2; color: #b91c1c; }
+    .badge-blue { background: #dbeafe; color: #1d4ed8; }
+    .badge-gray { background: #f3f4f6; color: #4b5563; }
+    .badge-orange { background: #ffedd5; color: #c2410c; }
+
+    /* ─── Tables ─── */
     table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; padding: 12px; font-weight: 600; color: #6b7280; border-bottom: 2px solid #e5e7eb; font-size: 0.875rem; }
-    td { padding: 12px; border-bottom: 1px solid #f3f4f6; font-size: 0.875rem; }
-    tr:hover td { background: #f9fafb; }
-    input, select, textarea { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.875rem; outline: none; }
-    input:focus, select:focus, textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
-    .btn { padding: 8px 16px; border-radius: 8px; font-weight: 500; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; border: none; }
-    .btn-primary { background: #3b82f6; color: white; }
-    .btn-primary:hover { background: #2563eb; }
-    .btn-success { background: #22c55e; color: white; }
+    th {
+      text-align: left;
+      padding: 11px 14px;
+      font-weight: 600;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #9ca3af;
+      border-bottom: 2px solid #f3f4f6;
+    }
+    td { padding: 11px 14px; border-bottom: 1px solid #f9f9f9; font-size: 0.84rem; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fff8f5; }
+
+    /* ─── Inputs ─── */
+    input, select, textarea {
+      width: 100%;
+      padding: 9px 13px;
+      border: 1.5px solid #e5e7eb;
+      border-radius: 10px;
+      font-size: 0.875rem;
+      font-family: 'Poppins', sans-serif;
+      outline: none;
+      background: #fff;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: #f97316;
+      box-shadow: 0 0 0 3px rgba(249,115,22,0.12);
+    }
+
+    /* ─── Buttons ─── */
+    .btn {
+      padding: 8px 18px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.84rem;
+      font-family: 'Poppins', sans-serif;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary { background: #f97316; color: #fff; }
+    .btn-primary:hover { background: #ea580c; box-shadow: 0 4px 12px rgba(249,115,22,0.35); }
+    .btn-success { background: #22c55e; color: #fff; }
     .btn-success:hover { background: #16a34a; }
-    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger { background: #ef4444; color: #fff; }
     .btn-danger:hover { background: #dc2626; }
-    .btn-warning { background: #f59e0b; color: white; }
+    .btn-warning { background: #f59e0b; color: #fff; }
     .btn-warning:hover { background: #d97706; }
-    .btn-outline { background: transparent; border: 1px solid #d1d5db; color: #374151; }
-    .btn-outline:hover { background: #f9fafb; }
-    .sidebar-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; opacity: 0; pointer-events: none; transition: opacity 0.2s ease; }
+    .btn-outline {
+      background: transparent;
+      border: 1.5px solid #e5e7eb;
+      color: #374151;
+    }
+    .btn-outline:hover { background: #f9f9f9; border-color: #d1d5db; }
+
+    /* ─── Modal ─── */
+    .modal-overlay { background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); }
+
+    /* ─── Sidebar backdrop ─── */
+    .sidebar-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 40;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
     .sidebar-backdrop.open { opacity: 1; pointer-events: auto; }
     @media (max-width: 768px) {
       .sidebar { transform: translateX(-100%); position: fixed; z-index: 50; }
@@ -48,123 +143,277 @@
     @media (min-width: 769px) {
       .sidebar-backdrop { display: none; }
     }
-    .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 12px 20px; border-radius: 8px; color: white; font-weight: 500; animation: slideIn 0.3s ease; }
-    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ─── Toast ─── */
+    .toast {
+      position: fixed; top: 20px; right: 20px;
+      z-index: 9999;
+      padding: 12px 20px;
+      border-radius: 12px;
+      color: white;
+      font-weight: 600;
+      font-size: 0.85rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      animation: slideIn 0.3s ease;
+    }
+    @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+    /* ─── Role helpers ─── */
     .admin-only { display: none; }
     body.role-admin .admin-only { display: flex; }
     body.view-only .write-action { display: none !important; }
-    .view-banner { background: #fef3c7; color: #92400e; padding: 10px 24px; font-size: 0.875rem; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+    /* ─── View Banner ─── */
+    .view-banner {
+      background: #fff7ed;
+      color: #9a3412;
+      border-bottom: 1px solid #fed7aa;
+      padding: 10px 24px;
+      font-size: 0.84rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    /* ─── Sidebar category label ─── */
+    .nav-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+      padding: 12px 12px 4px;
+    }
+
+    /* ─── Login ─── */
+    .login-left {
+      background: linear-gradient(145deg, #f97316 0%, #ea580c 60%, #c2410c 100%);
+    }
+    .login-shape {
+      position: absolute;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+    }
+
+    /* ─── Top header ─── */
+    .topbar-btn {
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      border: 1.5px solid #e5e7eb;
+      background: #fff;
+      color: #374151;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: 'Poppins', sans-serif;
+    }
+    .topbar-btn:hover { border-color: #f97316; color: #f97316; }
+
+    /* ─── Scrollbar ─── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #f97316; }
   </style>
 </head>
 <body>
   <div id="app">
-    <!-- Login Page -->
-    <div id="loginPage" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
-      <div class="card p-8 w-full max-w-md">
-        <div class="text-center mb-6">
-          <i class="fab fa-whatsapp text-5xl text-green-500 mb-3"></i>
-          <h1 class="text-2xl font-bold text-gray-800">Business Dashboard</h1>
-          <p class="text-gray-500 text-sm">WhatsApp Customer Service</p>
-        </div>
-        <div class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
-            <input type="text" id="loginUsername" placeholder="admin" autocomplete="username">
+
+    <!-- ═══════════ LOGIN PAGE ═══════════ -->
+    <div id="loginPage" class="min-h-screen flex">
+
+      <!-- Left — Brand Panel -->
+      <div class="login-left hidden md:flex flex-col justify-between w-1/2 p-12 relative overflow-hidden">
+        <!-- Decorative circles -->
+        <div class="login-shape w-72 h-72 -top-16 -left-16"></div>
+        <div class="login-shape w-48 h-48 top-1/3 -right-12"></div>
+        <div class="login-shape w-32 h-32 bottom-20 left-10"></div>
+
+        <!-- Logo + Brand -->
+        <div class="relative z-10">
+          <div class="flex items-center gap-3 mb-12">
+            <div class="w-11 h-11 bg-white/20 rounded-xl flex items-center justify-center">
+              <i class="fab fa-whatsapp text-2xl text-white"></i>
+            </div>
+            <span class="text-white font-bold text-xl tracking-tight">FaganFAiAgent</span>
           </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input type="password" id="loginPassword" placeholder="password" autocomplete="current-password">
-          </div>
-          <button onclick="login()" class="btn btn-primary w-full py-3">
-            <i class="fas fa-sign-in-alt mr-2"></i>Masuk
-          </button>
-          <p id="loginError" class="text-red-500 text-sm text-center hidden"></p>
+          <h2 class="text-white text-4xl font-bold leading-tight mb-4">
+            Kelola bisnis<br>WhatsApp kamu<br>lebih mudah.
+          </h2>
+          <p class="text-orange-100 text-base leading-relaxed max-w-xs">
+            Satu dashboard untuk semua — customer, order, tiket, broadcast, dan analytics.
+          </p>
         </div>
-        <p class="text-center text-xs text-gray-400 mt-4">Default: admin / admin123</p>
+
+        <!-- Feature list -->
+        <div class="relative z-10 space-y-3">
+          <div class="flex items-center gap-3 text-white/90 text-sm">
+            <div class="w-7 h-7 bg-white/15 rounded-lg flex items-center justify-center shrink-0">
+              <i class="fas fa-bolt text-xs"></i>
+            </div>
+            Auto-reply 24 jam tanpa henti
+          </div>
+          <div class="flex items-center gap-3 text-white/90 text-sm">
+            <div class="w-7 h-7 bg-white/15 rounded-lg flex items-center justify-center shrink-0">
+              <i class="fas fa-chart-line text-xs"></i>
+            </div>
+            Analytics performa real-time
+          </div>
+          <div class="flex items-center gap-3 text-white/90 text-sm">
+            <div class="w-7 h-7 bg-white/15 rounded-lg flex items-center justify-center shrink-0">
+              <i class="fas fa-shield-alt text-xs"></i>
+            </div>
+            Keamanan data terjamin
+          </div>
+        </div>
+      </div>
+
+      <!-- Right — Form Panel -->
+      <div class="flex-1 flex flex-col items-center justify-center px-6 py-12 bg-white">
+        <!-- Mobile logo -->
+        <div class="md:hidden flex items-center gap-2 mb-10">
+          <div class="w-9 h-9 bg-orange-500 rounded-xl flex items-center justify-center">
+            <i class="fab fa-whatsapp text-white text-lg"></i>
+          </div>
+          <span class="font-bold text-lg text-gray-800">FaganFAiAgent</span>
+        </div>
+
+        <div class="w-full max-w-sm">
+          <h1 class="text-2xl font-bold text-gray-900 mb-1">Selamat datang 👋</h1>
+          <p class="text-gray-400 text-sm mb-8">Masuk ke dashboard bisnis kamu</p>
+
+          <div class="space-y-5">
+            <div>
+              <label class="block text-sm font-600 text-gray-700 mb-1.5">Username</label>
+              <div class="relative">
+                <i class="fas fa-user absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                <input type="text" id="loginUsername" placeholder="Masukkan username" autocomplete="username" style="padding-left: 38px;">
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-600 text-gray-700 mb-1.5">Password</label>
+              <div class="relative">
+                <i class="fas fa-lock absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                <input type="password" id="loginPassword" placeholder="Masukkan password" autocomplete="current-password" style="padding-left: 38px;">
+              </div>
+            </div>
+            <button onclick="login()" class="btn btn-primary w-full py-3 justify-center text-base">
+              Masuk <i class="fas fa-arrow-right ml-1"></i>
+            </button>
+            <p id="loginError" class="text-red-500 text-sm text-center hidden"></p>
+          </div>
+
+          <p class="text-center text-xs text-gray-300 mt-8">© 2025 FaganFAiAgent · Powered by Fagan</p>
+        </div>
       </div>
     </div>
 
-    <!-- Main Dashboard -->
+    <!-- ═══════════ MAIN DASHBOARD ═══════════ -->
     <div id="mainApp" class="hidden">
+
       <!-- Sidebar -->
-      <aside id="sidebar" class="sidebar fixed left-0 top-0 h-full w-64 bg-gray-900 text-white p-4 overflow-y-auto">
-        <div class="flex items-center gap-3 mb-8 px-2">
-          <i class="fab fa-whatsapp text-3xl text-green-400"></i>
-          <div>
-            <h2 class="font-bold text-lg" id="sidebarBizName">Business CS</h2>
-            <span class="text-xs text-gray-400">Dashboard</span>
+      <aside id="sidebar" class="sidebar fixed left-0 top-0 h-full w-64 p-4 overflow-y-auto"
+             style="background: linear-gradient(180deg, #f97316 0%, #c2410c 100%);">
+
+        <!-- Brand -->
+        <div class="flex items-center gap-3 mb-6 px-2 pt-1">
+          <div class="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
+            <i class="fab fa-whatsapp text-white text-lg"></i>
+          </div>
+          <div class="min-w-0">
+            <h2 class="font-bold text-base text-white truncate" id="sidebarBizName">Business CS</h2>
+            <span class="text-xs text-orange-100 opacity-70">Dashboard</span>
           </div>
         </div>
-        <nav class="space-y-1">
-          <a href="#" onclick="showPage('dashboard')" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 text-sm" data-page="dashboard" title="Ringkasan aktivitas & statistik bisnis hari ini">
-            <i class="fas fa-chart-pie w-5 text-center"></i> Dashboard
+
+        <nav class="space-y-0.5">
+          <!-- Main -->
+          <div class="nav-label">Menu Utama</div>
+          <a href="#" onclick="showPage('dashboard')" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 text-sm" data-page="dashboard">
+            <i class="fas fa-chart-pie w-4 text-center"></i> Dashboard
           </a>
-          <a href="#" onclick="showPage('products')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="products" title="Kelola katalog produk yang bisa dipesan via WhatsApp">
-            <i class="fas fa-box w-5 text-center"></i> Produk
+          <a href="#" onclick="showPage('products')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="products">
+            <i class="fas fa-box w-4 text-center"></i> Produk
           </a>
-          <a href="#" onclick="showPage('orders')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="orders" title="Pantau & proses pesanan masuk dari pelanggan">
-            <i class="fas fa-shopping-cart w-5 text-center"></i> Order
+          <a href="#" onclick="showPage('orders')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="orders">
+            <i class="fas fa-shopping-cart w-4 text-center"></i> Order
           </a>
-          <a href="#" onclick="showPage('customers')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="customers" title="Lihat & kelola data pelanggan yang sudah chat">
-            <i class="fas fa-users w-5 text-center"></i> Customer
+          <a href="#" onclick="showPage('customers')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="customers">
+            <i class="fas fa-users w-4 text-center"></i> Customer
           </a>
-          <a href="#" onclick="showPage('tickets')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="tickets" title="Kelola keluhan/pertanyaan pelanggan yang butuh penanganan">
-            <i class="fas fa-ticket-alt w-5 text-center"></i> Tiket Support
+          <a href="#" onclick="showPage('tickets')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="tickets">
+            <i class="fas fa-ticket-alt w-4 text-center"></i> Tiket Support
           </a>
-          <a href="#" onclick="showPage('faq')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="faq" title="Atur jawaban otomatis untuk pertanyaan yang sering ditanyakan">
-            <i class="fas fa-question-circle w-5 text-center"></i> FAQ
+
+          <!-- Konten -->
+          <div class="nav-label">Konten & Pesan</div>
+          <a href="#" onclick="showPage('faq')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="faq">
+            <i class="fas fa-question-circle w-4 text-center"></i> FAQ
           </a>
-          <a href="#" onclick="showPage('templates')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="templates" title="Simpan template balasan untuk membalas chat lebih cepat">
-            <i class="fas fa-file-alt w-5 text-center"></i> Template
+          <a href="#" onclick="showPage('templates')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="templates">
+            <i class="fas fa-file-alt w-4 text-center"></i> Template
           </a>
-          <a href="#" onclick="showPage('broadcast')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="broadcast" title="Kirim satu pesan ke banyak pelanggan sekaligus">
-            <i class="fas fa-bullhorn w-5 text-center"></i> Broadcast
+          <a href="#" onclick="showPage('broadcast')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="broadcast">
+            <i class="fas fa-bullhorn w-4 text-center"></i> Broadcast
           </a>
-          <a href="#" onclick="showPage('agents')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="agents" title="Kelola admin/CS yang membalas chat pelanggan">
-            <i class="fas fa-headset w-5 text-center"></i> Agents
+
+          <!-- Tim & Inbox -->
+          <div class="nav-label">Tim & Inbox</div>
+          <a href="#" onclick="showPage('agents')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="agents">
+            <i class="fas fa-headset w-4 text-center"></i> Agents
           </a>
-          <a href="#" onclick="showPage('inbox')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="inbox" title="Shared inbox — semua chat masuk dalam satu tempat">
-            <i class="fas fa-inbox w-5 text-center text-cyan-400"></i> Shared Inbox <span id="inboxBadge" class="ml-auto badge badge-blue text-xs hidden">0</span>
+          <a href="#" onclick="showPage('inbox')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="inbox">
+            <i class="fas fa-inbox w-4 text-center"></i> Shared Inbox <span id="inboxBadge" class="ml-auto badge badge-orange text-xs hidden">0</span>
           </a>
-          <a href="#" onclick="showPage('handoffs')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="handoffs" title="Riwayat handoff dari AI ke CS manusia">
-            <i class="fas fa-exchange-alt w-5 text-center text-amber-400"></i> Handoff CS
+          <a href="#" onclick="showPage('handoffs')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="handoffs">
+            <i class="fas fa-exchange-alt w-4 text-center"></i> Handoff CS
           </a>
-          <a href="#" onclick="showPage('automation')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="automation" title="Buat aturan otomatis: keyword trigger, auto-reply, tag, notifikasi">
-            <i class="fas fa-magic w-5 text-center text-violet-400"></i> Automation
+          <a href="#" onclick="showPage('automation')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="automation">
+            <i class="fas fa-magic w-4 text-center"></i> Automation
           </a>
-          <a href="#" onclick="showPage('vouchers')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="vouchers" title="Kelola kode voucher/diskon untuk customer">
-            <i class="fas fa-tags w-5 text-center text-orange-400"></i> Voucher
+
+          <!-- Promosi -->
+          <div class="nav-label">Promosi & Bayar</div>
+          <a href="#" onclick="showPage('vouchers')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="vouchers">
+            <i class="fas fa-tags w-4 text-center"></i> Voucher
           </a>
-          <a href="#" onclick="showPage('paymentmethods')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="paymentmethods" title="Atur rekening/akun pembayaran yang ditawarkan ke customer">
-            <i class="fas fa-wallet w-5 text-center text-emerald-400"></i> Pembayaran
+          <a href="#" onclick="showPage('paymentmethods')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="paymentmethods">
+            <i class="fas fa-wallet w-4 text-center"></i> Pembayaran
           </a>
-          <a href="#" onclick="showPage('loyalty')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="loyalty" title="Kelola sistem poin loyalitas customer">
-            <i class="fas fa-star w-5 text-center text-yellow-400"></i> Loyalty
+          <a href="#" onclick="showPage('loyalty')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="loyalty">
+            <i class="fas fa-star w-4 text-center"></i> Loyalty
           </a>
-          <a href="#" onclick="showPage('referral')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="referral" title="Program referral & kode ajakan customer">
-            <i class="fas fa-share-alt w-5 text-center text-pink-400"></i> Referral
+          <a href="#" onclick="showPage('referral')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="referral">
+            <i class="fas fa-share-alt w-4 text-center"></i> Referral
           </a>
-          <a href="#" onclick="showPage('bundles')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="bundles" title="Kelola paket combo produk dengan harga spesial">
-            <i class="fas fa-cubes w-5 text-center text-indigo-400"></i> Bundles
+          <a href="#" onclick="showPage('bundles')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="bundles">
+            <i class="fas fa-cubes w-4 text-center"></i> Bundles
           </a>
-          <a href="#" onclick="showPage('botmanager')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="botmanager" title="Hubungkan & kelola nomor WhatsApp bot">
-            <i class="fas fa-robot w-5 text-center text-green-400"></i> Kelola Bot
+
+          <!-- Sistem -->
+          <div class="nav-label">Sistem</div>
+          <a href="#" onclick="showPage('botmanager')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="botmanager">
+            <i class="fas fa-robot w-4 text-center"></i> Kelola Bot
           </a>
-          <a href="#" onclick="showPage('important')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="important" title="Pesan yang terdeteksi penting & perlu perhatian cepat">
-            <i class="fas fa-exclamation-triangle w-5 text-center text-yellow-400"></i> Pesan Penting <span id="importantBadge" class="ml-auto badge badge-red text-xs hidden">0</span>
+          <a href="#" onclick="showPage('important')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="important">
+            <i class="fas fa-bell w-4 text-center"></i> Pesan Penting <span id="importantBadge" class="ml-auto badge badge-red text-xs hidden">0</span>
           </a>
-          <a href="#" onclick="showPage('analytics')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="analytics" title="Statistik performa chat, order, dan penjualan">
-            <i class="fas fa-chart-bar w-5 text-center"></i> Analytics
+          <a href="#" onclick="showPage('analytics')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="analytics">
+            <i class="fas fa-chart-bar w-4 text-center"></i> Analytics
           </a>
-          <a href="#" onclick="showPage('clients')" class="sidebar-link admin-only flex items-center gap-3 px-3 py-2.5 text-sm" data-page="clients" title="Kelola akun client lain (khusus admin)">
-            <i class="fas fa-user-shield w-5 text-center text-purple-400"></i> Kelola Client
+          <a href="#" onclick="showPage('clients')" class="sidebar-link admin-only flex items-center gap-3 px-3 py-2.5 text-sm" data-page="clients">
+            <i class="fas fa-user-shield w-4 text-center"></i> Kelola Client
           </a>
-          <a href="#" onclick="showPage('settings')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="settings" title="Atur profil bisnis, jam operasional, & preferensi lain">
-            <i class="fas fa-cog w-5 text-center"></i> Pengaturan
+          <a href="#" onclick="showPage('settings')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="settings">
+            <i class="fas fa-cog w-4 text-center"></i> Pengaturan
           </a>
-          <div class="border-t border-gray-700 my-2"></div>
-          <button onclick="logout()" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 w-full text-left">
-            <i class="fas fa-sign-out-alt w-5 text-center"></i> Logout
+
+          <!-- Logout -->
+          <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 10px 0 4px;"></div>
+          <button onclick="logout()" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm w-full text-left" style="color: rgba(255,255,255,0.65);">
+            <i class="fas fa-sign-out-alt w-4 text-center"></i> Logout
           </button>
         </nav>
       </aside>
@@ -173,28 +422,39 @@
 
       <!-- Main Content -->
       <main class="md:ml-64 min-h-screen" id="mainContent">
+
         <!-- Top Bar -->
-        <header class="bg-white shadow-sm px-4 md:px-6 py-3 md:py-4 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10">
-          <div class="flex items-center gap-3 md:gap-4 min-w-0">
-            <button onclick="toggleSidebar()" class="md:hidden text-gray-600 shrink-0">
-              <i class="fas fa-bars text-xl"></i>
+        <header class="bg-white border-b border-gray-100 px-4 md:px-6 py-3 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-10"
+                style="box-shadow: 0 1px 0 #f3f4f6;">
+          <div class="flex items-center gap-3 min-w-0">
+            <button onclick="toggleSidebar()" class="md:hidden text-gray-500 shrink-0 p-1">
+              <i class="fas fa-bars text-lg"></i>
             </button>
-            <h1 class="text-lg md:text-xl font-bold text-gray-800 truncate" id="pageTitle">Dashboard</h1>
+            <h1 class="text-base md:text-lg font-bold text-gray-800 truncate" id="pageTitle">Dashboard</h1>
           </div>
-          <div class="flex items-center gap-2 md:gap-4 flex-wrap justify-end">
+          <div class="flex items-center gap-2 md:gap-3 flex-wrap justify-end">
             <div class="flex items-center gap-2">
-              <i class="fab fa-whatsapp text-green-500"></i>
-              <select id="botSelector" onchange="onBotSelect(this.value)" class="text-sm border border-gray-300 rounded-lg px-2 py-1 w-auto min-w-[120px] max-w-[160px] md:min-w-[140px]">
+              <i class="fab fa-whatsapp text-green-500 text-sm"></i>
+              <select id="botSelector" onchange="onBotSelect(this.value)"
+                      class="text-sm border border-gray-200 rounded-lg px-2 py-1.5 w-auto min-w-[120px] max-w-[160px]"
+                      style="font-family:'Poppins',sans-serif; font-size:0.8rem;">
                 <option value="">Loading...</option>
               </select>
               <span id="botCount" class="text-xs text-gray-400 hidden sm:inline"></span>
             </div>
             <div id="viewSwitcherWrap" class="flex items-center gap-2 hidden">
-              <i class="fas fa-eye text-purple-500"></i>
-              <select id="viewSwitcher" onchange="onViewSwitch(this.value)" class="text-sm border border-purple-300 rounded-lg px-2 py-1 w-auto min-w-[120px] max-w-[160px] md:min-w-[160px]"></select>
+              <i class="fas fa-eye text-orange-400 text-sm"></i>
+              <select id="viewSwitcher" onchange="onViewSwitch(this.value)"
+                      class="text-sm border border-orange-200 rounded-lg px-2 py-1.5 w-auto min-w-[120px] max-w-[160px]"
+                      style="font-family:'Poppins',sans-serif; font-size:0.8rem;"></select>
             </div>
-            <span class="text-sm text-gray-500 hidden lg:inline" id="currentDate"></span>
-            <span class="text-sm font-medium text-gray-700 hidden sm:inline" id="userName">Admin</span>
+            <span class="text-xs text-gray-400 hidden lg:inline" id="currentDate"></span>
+            <div class="flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-full px-3 py-1">
+              <div class="w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center">
+                <i class="fas fa-user text-white text-[9px]"></i>
+              </div>
+              <span class="text-xs font-600 text-orange-700 hidden sm:inline" id="userName">Admin</span>
+            </div>
           </div>
         </header>
 
@@ -203,7 +463,7 @@
           <button onclick="onViewSwitch('')" class="btn btn-outline text-xs">Kembali ke Data Saya</button>
         </div>
 
-        <p id="pageDesc" class="px-4 md:px-6 pt-2 pb-0 text-sm text-blue-600 flex items-center gap-2"></p>
+        <p id="pageDesc" class="px-4 md:px-6 pt-3 pb-0 text-sm text-orange-600 flex items-center gap-2"></p>
 
         <!-- Page Content -->
         <div class="p-4 md:p-6" id="pageContent"></div>
@@ -211,7 +471,7 @@
     </div>
   </div>
 
-  <!-- Modal Container -->
+  <!-- Modal -->
   <div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
     <div class="card p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" id="modalContent"></div>
   </div>
