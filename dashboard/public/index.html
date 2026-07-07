@@ -6,6 +6,7 @@
   <title>FaganFAiAgent — Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -251,19 +252,19 @@
         <div class="relative z-10 space-y-3">
           <div class="flex items-center gap-3 text-white/90 text-sm">
             <div class="w-7 h-7 bg-white/15 rounded-lg flex items-center justify-center shrink-0">
-              ⚡
+              <i class="bi bi-lightning-charge text-xs"></i>
             </div>
             Auto-reply 24 jam tanpa henti
           </div>
           <div class="flex items-center gap-3 text-white/90 text-sm">
             <div class="w-7 h-7 bg-white/15 rounded-lg flex items-center justify-center shrink-0">
-              📈
+              <i class="bi bi-graph-up text-xs"></i>
             </div>
             Analytics performa real-time
           </div>
           <div class="flex items-center gap-3 text-white/90 text-sm">
             <div class="w-7 h-7 bg-white/15 rounded-lg flex items-center justify-center shrink-0">
-              🔐
+              <i class="bi bi-shield-lock text-xs"></i>
             </div>
             Keamanan data terjamin
           </div>
@@ -332,88 +333,88 @@
           <!-- Main -->
           <div class="nav-label">Menu Utama</div>
           <a href="#" onclick="showPage('dashboard')" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 text-sm" data-page="dashboard">
-            <span class="w-4 text-center inline-block text-base">📌</span> Dashboard
+            <i class="bi bi-grid-1x2 w-4 text-center"></i> Dashboard
           </a>
           <a href="#" onclick="showPage('products')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="products">
-            <span class="w-4 text-center inline-block text-base">🏪</span> Produk
+            <i class="bi bi-shop w-4 text-center"></i> Produk
           </a>
           <a href="#" onclick="showPage('orders')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="orders">
-            <span class="w-4 text-center inline-block text-base">📬</span> Order
+            <i class="bi bi-bag-check w-4 text-center"></i> Order
           </a>
           <a href="#" onclick="showPage('customers')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="customers">
-            <span class="w-4 text-center inline-block text-base">🙋</span> Customer
+            <i class="bi bi-people w-4 text-center"></i> Customer
           </a>
           <a href="#" onclick="showPage('tickets')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="tickets">
-            <span class="w-4 text-center inline-block text-base">🛠️</span> Tiket Support
+            <i class="bi bi-life-preserver w-4 text-center"></i> Tiket Support
           </a>
 
           <!-- Konten -->
           <div class="nav-label">Konten & Pesan</div>
           <a href="#" onclick="showPage('faq')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="faq">
-            <span class="w-4 text-center inline-block text-base">🤔</span> FAQ
+            <i class="bi bi-patch-question w-4 text-center"></i> FAQ
           </a>
           <a href="#" onclick="showPage('templates')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="templates">
-            <span class="w-4 text-center inline-block text-base">✍️</span> Template
+            <i class="bi bi-file-earmark-text w-4 text-center"></i> Template
           </a>
           <a href="#" onclick="showPage('broadcast')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="broadcast">
-            <span class="w-4 text-center inline-block text-base">📻</span> Broadcast
+            <i class="bi bi-broadcast w-4 text-center"></i> Broadcast
           </a>
 
           <!-- Tim & Inbox -->
           <div class="nav-label">Tim & Inbox</div>
           <a href="#" onclick="showPage('agents')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="agents">
-            <span class="w-4 text-center inline-block text-base">🧑‍💼</span> Agents
+            <i class="bi bi-headset w-4 text-center"></i> Agents
           </a>
           <a href="#" onclick="showPage('inbox')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="inbox">
-            <span class="w-4 text-center inline-block text-base">📨</span> Shared Inbox <span id="inboxBadge" class="ml-auto badge badge-orange text-xs hidden">0</span>
+            <i class="bi bi-inbox w-4 text-center"></i> Shared Inbox <span id="inboxBadge" class="ml-auto badge badge-orange text-xs hidden">0</span>
           </a>
           <a href="#" onclick="showPage('handoffs')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="handoffs">
-            <span class="w-4 text-center inline-block text-base">🔀</span> Handoff CS
+            <i class="bi bi-arrow-left-right w-4 text-center"></i> Handoff CS
           </a>
           <a href="#" onclick="showPage('automation')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="automation">
-            <span class="w-4 text-center inline-block text-base">⚡</span> Automation
+            <i class="bi bi-lightning-charge w-4 text-center"></i> Automation
           </a>
 
           <!-- Promosi -->
           <div class="nav-label">Promosi & Bayar</div>
           <a href="#" onclick="showPage('vouchers')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="vouchers">
-            <span class="w-4 text-center inline-block text-base">🎟️</span> Voucher
+            <i class="bi bi-ticket-perforated w-4 text-center"></i> Voucher
           </a>
           <a href="#" onclick="showPage('paymentmethods')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="paymentmethods">
-            <span class="w-4 text-center inline-block text-base">💵</span> Pembayaran
+            <i class="bi bi-wallet2 w-4 text-center"></i> Pembayaran
           </a>
           <a href="#" onclick="showPage('loyalty')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="loyalty">
-            <span class="w-4 text-center inline-block text-base">🎖️</span> Loyalty
+            <i class="bi bi-award w-4 text-center"></i> Loyalty
           </a>
           <a href="#" onclick="showPage('referral')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="referral">
-            <span class="w-4 text-center inline-block text-base">📡</span> Referral
+            <i class="bi bi-share w-4 text-center"></i> Referral
           </a>
           <a href="#" onclick="showPage('bundles')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="bundles">
-            <span class="w-4 text-center inline-block text-base">🎁</span> Bundles
+            <i class="bi bi-box-seam w-4 text-center"></i> Bundles
           </a>
 
           <!-- Sistem -->
           <div class="nav-label">Sistem</div>
           <a href="#" onclick="showPage('botmanager')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="botmanager">
-            <span class="w-4 text-center inline-block text-base">🦾</span> Kelola Bot
+            <i class="bi bi-robot w-4 text-center"></i> Kelola Bot
           </a>
           <a href="#" onclick="showPage('important')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="important">
-            <span class="w-4 text-center inline-block text-base">❗</span> Pesan Penting <span id="importantBadge" class="ml-auto badge badge-red text-xs hidden">0</span>
+            <i class="bi bi-bell w-4 text-center"></i> Pesan Penting <span id="importantBadge" class="ml-auto badge badge-red text-xs hidden">0</span>
           </a>
           <a href="#" onclick="showPage('analytics')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="analytics">
-            <span class="w-4 text-center inline-block text-base">📈</span> Analytics
+            <i class="bi bi-graph-up w-4 text-center"></i> Analytics
           </a>
           <a href="#" onclick="showPage('clients')" class="sidebar-link admin-only flex items-center gap-3 px-3 py-2.5 text-sm" data-page="clients">
-            <span class="w-4 text-center inline-block text-base">🔑</span> Kelola Client
+            <i class="bi bi-shield-lock w-4 text-center"></i> Kelola Client
           </a>
           <a href="#" onclick="showPage('settings')" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm" data-page="settings">
-            <span class="w-4 text-center inline-block text-base">🔧</span> Pengaturan
+            <i class="bi bi-gear w-4 text-center"></i> Pengaturan
           </a>
 
           <!-- Logout -->
           <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 10px 0 4px;"></div>
           <button onclick="logout()" class="sidebar-link flex items-center gap-3 px-3 py-2.5 text-sm w-full text-left" style="color: rgba(255,255,255,0.65);">
-            <span class="w-4 text-center inline-block text-base">👋</span> Logout
+            <i class="bi bi-box-arrow-right w-4 text-center"></i> Logout
           </button>
         </nav>
       </aside>
