@@ -298,6 +298,14 @@ db.exec(`
 `);
 
 // === MIGRATION FOR EXISTING INSTALLS ===
+// SECURITY NOTE: `table`/`col`/`typedef` here (and in repairDanglingForeignKeys
+// below) are always hardcoded internal migration constants or values read back
+// from sqlite_master/PRAGMA (never user/request/bot-message input). SQLite has
+// no parameter binding for identifiers, so template-literal interpolation of
+// table/column names is only safe because these values never leave this
+// trusted internal migration code. Do NOT reuse this pattern with any value
+// derived from HTTP requests or WhatsApp/Telegram input without adding an
+// allowlist first.
 function addColSafe(table, col, typedef) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!cols.some(c => c.name === col)) {

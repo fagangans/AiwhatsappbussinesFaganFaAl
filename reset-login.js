@@ -1,6 +1,8 @@
 // Jalankan dengan: node reset-login.js
 // Fungsi: Menghapus akun login dashboard agar otomatis dibuat ulang
-// menjadi admin / admin123 saat npm start dijalankan lagi.
+// (dengan password acak baru, dicetak sekali ke console) saat npm start
+// dijalankan lagi. Set ADMIN_PASSWORD di environment jika ingin password
+// awal yang spesifik.
 // Data bisnis (produk, order, customer, dll) TIDAK akan terhapus.
 
 import Database from "better-sqlite3";
@@ -15,7 +17,6 @@ db.prepare("DELETE FROM dashboard_users").run();
 db.close();
 
 console.log("✔ Akun login dashboard berhasil direset.");
-console.log("Jalankan 'npm start', lalu login dengan:");
-console.log("  Username : admin");
-console.log("  Password : admin123");
+console.log("Jalankan 'npm start' — password admin baru (acak, atau dari ADMIN_PASSWORD");
+console.log("env var jika diset) akan dicetak sekali ke console saat aplikasi start.");
 console.log("Setelah login, segera ganti password lewat menu Pengaturan.");

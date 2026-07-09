@@ -21,7 +21,7 @@ import FormData from "form-data";
 import axios from "axios";
 
 // Apikeys
-const REMOVEBG_API_KEY = "sk-sakanaa-eb8614f0b2dd958a1191b4d0588393f4780b66942af824c2";
+const REMOVEBG_API_KEY = process.env.REMOVEBG_API_KEY || "";
 
 export const info = {
   name: "Remove Background",
@@ -68,6 +68,12 @@ export default async function handler(leni) {
   if (!imageMsg) {
     return LenwyText(
       "⚠️ *Kirim atau reply foto yang ingin dihapus backgroundnya!*"
+    );
+  }
+
+  if (!REMOVEBG_API_KEY) {
+    return LenwyText(
+      "⚠️ *Fitur removebg belum dikonfigurasi.* Set REMOVEBG_API_KEY di environment variable."
     );
   }
 

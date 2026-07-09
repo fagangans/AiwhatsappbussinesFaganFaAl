@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { WebSocketServer } from "ws";
 
@@ -35,7 +36,27 @@ import db, {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const JWT_SECRET = process.env.JWT_SECRET || "bisnis-wa-dashboard-secret-key-2024";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error(
+    "[Dashboard] JWT_SECRET tidak diset di environment variable. " +
+    "Set JWT_SECRET dengan nilai acak yang kuat (lihat .env.example) sebelum menjalankan aplikasi."
+  );
+}
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin(origin, callback) {
+    // Requests with no Origin header (same-origin, curl, server-to-server) are allowed.
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error("Not allowed by CORS"));
+  },
+};
 
 const upload = multer({
   dest: path.join(__dirname, "uploads"),
@@ -92,7 +113,7 @@ function getViewContext(req) {
 
 export default function startDashboard() {
   const app = express();
-  app.use(cors());
+  app.use(cors(corsOptions));
   app.use(express.json());
   app.use(express.static(path.join(__dirname, "public")));
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
@@ -118,13 +139,45 @@ export default function startDashboard() {
   }
 
   if (!dashboardUserExists()) {
-    const hash = bcrypt.hashSync("admin123", 10);
+    const initialPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(12).toString("base64url");
+    const hash = bcrypt.hashSync(initialPassword, 10);
     createDashboardUser("admin", hash, "Administrator", "admin");
-    console.log("[Dashboard] Default user created: admin / admin123");
+    if (process.env.ADMIN_PASSWORD) {
+      console.log("[Dashboard] Default user created: admin (password diambil dari ADMIN_PASSWORD env var)");
+    } else {
+      console.log("=====================================================================");
+      console.log("[Dashboard] Akun admin default dibuat dengan password acak:");
+      console.log(`[Dashboard]   Username : admin`);
+      console.log(`[Dashboard]   Password : ${initialPassword}`);
+      console.log("[Dashboard] SIMPAN password ini sekarang — tidak akan ditampilkan lagi.");
+      console.log("[Dashboard] Segera login dan ganti password lewat menu Pengaturan.");
+      console.log("=====================================================================");
+    }
   }
 
   // ===== AUTH =====
-  app.post("/api/login", (req, res) => {
+  const loginAttempts = new Map(); // ip -> { count, firstAttempt }
+  const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+  const LOGIN_MAX_ATTEMPTS = 10;
+
+  function loginRateLimit(req, res, next) {
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const now = Date.now();
+    const entry = loginAttempts.get(ip);
+    if (!entry || now - entry.firstAttempt > LOGIN_WINDOW_MS) {
+      loginAttempts.set(ip, { count: 1, firstAttempt: now });
+      return next();
+    }
+    if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+      const retryAfterSec = Math.ceil((LOGIN_WINDOW_MS - (now - entry.firstAttempt)) / 1000);
+      res.set("Retry-After", String(retryAfterSec));
+      return res.status(429).json({ error: "Terlalu banyak percobaan login. Coba lagi nanti." });
+    }
+    entry.count++;
+    next();
+  }
+
+  app.post("/api/login", loginRateLimit, (req, res) => {
     const { username, password } = req.body;
     const user = getDashboardUser(username);
     if (!user || !bcrypt.compareSync(password, user.password)) {
